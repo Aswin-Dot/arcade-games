@@ -19,7 +19,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const GRID_SIZE = 18;
 const INITIAL_SPEED = 160;
-const STORAGE_KEY = '@snake_high_score';
+const STORAGE_KEY = '@snake/highscore';
 
 type Direction = 'UP' | 'DOWN' | 'LEFT' | 'RIGHT';
 type GameStatus = 'IDLE' | 'RUNNING' | 'PAUSED' | 'DEAD';

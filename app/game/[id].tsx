@@ -1,13 +1,19 @@
-import { useLocalSearchParams, useRouter } from 'expo-router';
+import { Redirect, useLocalSearchParams, useRouter } from 'expo-router';
 import { View, Text, StyleSheet, Pressable } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { allGames } from '@/games/registry';
+import { configuredVariant } from '@/config/games.config';
 
 export default function GameScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
-  const game = allGames.find((g) => g.id === id);
+  const activeId = configuredVariant ?? id;
+  const game = allGames.find((g) => g.id === activeId);
+
+  if (configuredVariant && id !== configuredVariant) {
+    return <Redirect href={`/game/${configuredVariant}`} />;
+  }
 
   if (!game) {
     return (
@@ -25,12 +31,14 @@ export default function GameScreen() {
   return (
     <View style={styles.container}>
       <GameComponent />
-      <Pressable
-        style={[styles.floatingBack, { borderColor: game.color + '80' }]}
-        onPress={() => router.back()}
-      >
-        <Ionicons name="chevron-back" size={20} color="#fff" />
-      </Pressable>
+      {!configuredVariant && (
+        <Pressable
+          style={[styles.floatingBack, { borderColor: game.color + '80' }]}
+          onPress={() => router.back()}
+        >
+          <Ionicons name="chevron-back" size={20} color="#fff" />
+        </Pressable>
+      )}
     </View>
   );
 }

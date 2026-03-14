@@ -1,0 +1,103 @@
+{
+  "cli": {
+    "version": ">= 5.0.0"
+  },
+  "build": {
+    "snake-preview": {
+      "env": {
+        "APP_VARIANT": "snake",
+        "EXPO_PUBLIC_APP_VARIANT": "snake"
+      },
+      "android": {
+        "buildType": "apk"
+      },
+      "ios": {
+        "distribution": "internal"
+      }
+    },
+    "snake-production": {
+      "env": {
+        "APP_VARIANT": "snake",
+        "EXPO_PUBLIC_APP_VARIANT": "snake"
+      },
+      "android": {
+        "buildType": "app-bundle"
+      },
+      "ios": {
+        "distribution": "store"
+      }
+    },
+    "circle-shrink-preview": {
+      "env": {
+        "APP_VARIANT": "circle-shrink",
+        "EXPO_PUBLIC_APP_VARIANT": "circle-shrink"
+      },
+      "android": {
+        "buildType": "apk"
+      },
+      "ios": {
+        "distribution": "internal"
+      }
+    },
+    "circle-shrink-production": {
+      "env": {
+        "APP_VARIANT": "circle-shrink",
+        "EXPO_PUBLIC_APP_VARIANT": "circle-shrink"
+      },
+      "android": {
+        "buildType": "app-bundle"
+      },
+      "ios": {
+        "distribution": "store"
+      }
+    },
+    "laser-dodge-preview": {
+      "env": {
+        "APP_VARIANT": "laser-dodge",
+        "EXPO_PUBLIC_APP_VARIANT": "laser-dodge"
+      },
+      "android": {
+        "buildType": "apk"
+      },
+      "ios": {
+        "distribution": "internal"
+      }
+    },
+    "laser-dodge-production": {
+      "env": {
+        "APP_VARIANT": "laser-dodge",
+        "EXPO_PUBLIC_APP_VARIANT": "laser-dodge"
+      },
+      "android": {
+        "buildType": "app-bundle"
+      },
+      "ios": {
+        "distribution": "store"
+      }
+    },
+    "pulse-lanes-preview": {
+      "env": {
+        "APP_VARIANT": "pulse-lanes",
+        "EXPO_PUBLIC_APP_VARIANT": "pulse-lanes"
+      },
+      "android": {
+        "buildType": "apk"
+      },
+      "ios": {
+        "distribution": "internal"
+      }
+    },
+    "pulse-lanes-production": {
+      "env": {
+        "APP_VARIANT": "pulse-lanes",
+        "EXPO_PUBLIC_APP_VARIANT": "pulse-lanes"
+      },
+      "android": {
+        "buildType": "app-bundle"
+      },
+      "ios": {
+        "distribution": "store"
+      }
+    }
+  }
+}

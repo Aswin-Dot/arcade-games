@@ -8,10 +8,11 @@ import {
   Dimensions,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useRouter, useFocusEffect } from 'expo-router';
+import { Redirect, useRouter, useFocusEffect } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { allGames } from '@/games/registry';
+import { configuredVariant } from '@/config/games.config';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const CARD_GAP = 12;
@@ -23,6 +24,9 @@ export default function HomeScreen() {
 
   useFocusEffect(
     useCallback(() => {
+      if (configuredVariant) {
+        return () => undefined;
+      }
       const keys = allGames.map((g) => g.storageKey);
       AsyncStorage.multiGet(keys).then((results) => {
         const scores: Record<string, string> = {};
@@ -33,6 +37,10 @@ export default function HomeScreen() {
       });
     }, [])
   );
+
+  if (configuredVariant) {
+    return <Redirect href={`/game/${configuredVariant}`} />;
+  }
 
   return (
     <SafeAreaView style={styles.container}>
