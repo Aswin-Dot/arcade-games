@@ -28,7 +28,7 @@
         "EXPO_PUBLIC_TOPON_REWARDED_ID": "n1h7d467fh3h1k"
       },
       "android": { "buildType": "app-bundle" },
-      "ios": { "distribution": "store" }
+      "ios": { "distribution": "store", "image": "latest" }
     },
 
     "circle-shrink-preview": {
@@ -46,7 +46,7 @@
         "EXPO_PUBLIC_TOPON_REWARDED_ID": "n1h7d452ukc1fd"
       },
       "android": { "buildType": "app-bundle" },
-      "ios": { "distribution": "store" }
+      "ios": { "distribution": "store", "image": "latest" }
     },
 
     "laser-dodge-preview": {
@@ -64,7 +64,7 @@
         "EXPO_PUBLIC_TOPON_REWARDED_ID": "n1h7d45lcbl8uu"
       },
       "android": { "buildType": "app-bundle" },
-      "ios": { "distribution": "store" }
+      "ios": { "distribution": "store", "image": "latest" }
     },
 
     "pulse-lanes-preview": {
@@ -82,7 +82,7 @@
         "EXPO_PUBLIC_TOPON_REWARDED_ID": "n69b957a4a340e"
       },
       "android": { "buildType": "app-bundle" },
-      "ios": { "distribution": "store" }
+      "ios": { "distribution": "store", "image": "latest" }
     },
 
     "math-rush-preview": {
@@ -100,7 +100,7 @@
         "EXPO_PUBLIC_TOPON_REWARDED_ID": "n1h7d44fsjkq50"
       },
       "android": { "buildType": "app-bundle" },
-      "ios": { "distribution": "store" }
+      "ios": { "distribution": "store", "image": "latest" }
     },
 
     "gravity-flip-preview": {
@@ -118,7 +118,7 @@
         "EXPO_PUBLIC_TOPON_REWARDED_ID": "REPLACE_WITH_TOPON_REWARDED_PLACEMENT_ID_GRAVITY_FLIP"
       },
       "android": { "buildType": "app-bundle" },
-      "ios": { "distribution": "store" }
+      "ios": { "distribution": "store", "image": "latest" }
     },
 
     "color-clash-preview": {
@@ -136,7 +136,7 @@
         "EXPO_PUBLIC_TOPON_REWARDED_ID": "REPLACE_WITH_TOPON_REWARDED_PLACEMENT_ID_COLOR_CLASH"
       },
       "android": { "buildType": "app-bundle" },
-      "ios": { "distribution": "store" }
+      "ios": { "distribution": "store", "image": "latest" }
     },
 
     "stack-blocks-preview": {
@@ -154,7 +154,7 @@
         "EXPO_PUBLIC_TOPON_REWARDED_ID": "REPLACE_WITH_TOPON_REWARDED_PLACEMENT_ID_STACK_BLOCKS"
       },
       "android": { "buildType": "app-bundle" },
-      "ios": { "distribution": "store" }
+      "ios": { "distribution": "store", "image": "latest" }
     },
 
     "simon-says-preview": {
@@ -172,7 +172,7 @@
         "EXPO_PUBLIC_TOPON_REWARDED_ID": "REPLACE_WITH_TOPON_REWARDED_PLACEMENT_ID_SIMON_SAYS"
       },
       "android": { "buildType": "app-bundle" },
-      "ios": { "distribution": "store" }
+      "ios": { "distribution": "store", "image": "latest" }
     },
 
     "number-order-preview": {
@@ -190,7 +190,7 @@
         "EXPO_PUBLIC_TOPON_REWARDED_ID": "REPLACE_WITH_TOPON_REWARDED_PLACEMENT_ID_NUMBER_ORDER"
       },
       "android": { "buildType": "app-bundle" },
-      "ios": { "distribution": "store" }
+      "ios": { "distribution": "store", "image": "latest" }
     },
 
     "tap-rhythm-preview": {
@@ -208,7 +208,7 @@
         "EXPO_PUBLIC_TOPON_REWARDED_ID": "REPLACE_WITH_TOPON_REWARDED_PLACEMENT_ID_TAP_RHYTHM"
       },
       "android": { "buildType": "app-bundle" },
-      "ios": { "distribution": "store" }
+      "ios": { "distribution": "store", "image": "latest" }
     },
 
     "brick-breaker-preview": {
@@ -226,7 +226,7 @@
         "EXPO_PUBLIC_TOPON_REWARDED_ID": "REPLACE_WITH_TOPON_REWARDED_PLACEMENT_ID_BRICK_BREAKER"
       },
       "android": { "buildType": "app-bundle" },
-      "ios": { "distribution": "store" }
+      "ios": { "distribution": "store", "image": "latest" }
     },
 
     "slice-frenzy-preview": {
@@ -244,7 +244,7 @@
         "EXPO_PUBLIC_TOPON_REWARDED_ID": "REPLACE_WITH_TOPON_REWARDED_PLACEMENT_ID_SLICE_FRENZY"
       },
       "android": { "buildType": "app-bundle" },
-      "ios": { "distribution": "store" }
+      "ios": { "distribution": "store", "image": "latest" }
     },
 
     "tile-shift-preview": {
@@ -262,7 +262,7 @@
         "EXPO_PUBLIC_TOPON_REWARDED_ID": "REPLACE_WITH_TOPON_REWARDED_PLACEMENT_ID_TILE_SHIFT"
       },
       "android": { "buildType": "app-bundle" },
-      "ios": { "distribution": "store" }
+      "ios": { "distribution": "store", "image": "latest" }
     },
 
     "color-flood-preview": {
@@ -280,7 +280,7 @@
         "EXPO_PUBLIC_TOPON_REWARDED_ID": "REPLACE_WITH_TOPON_REWARDED_PLACEMENT_ID_COLOR_FLOOD"
       },
       "android": { "buildType": "app-bundle" },
-      "ios": { "distribution": "store" }
+      "ios": { "distribution": "store", "image": "latest" }
     }
 
   },
