@@ -156,30 +156,9 @@ const VARIANT_EAS_PROJECT_IDS = {
 const resolvedEasProjectId =
   process.env.EAS_PROJECT_ID ||
   (variant ? VARIANT_EAS_PROJECT_IDS[variant] : undefined);
-const DEFAULT_ANDROID_ADMOB_APP_ID = "ca-app-pub-3940256099942544~3347511713";
-const DEFAULT_IOS_ADMOB_APP_ID = "ca-app-pub-3940256099942544~1458002511";
-
-const adMobPlugin = [
-  "react-native-google-mobile-ads",
-  {
-    androidAppId:
-      process.env.ADMOB_ANDROID_APP_ID || DEFAULT_ANDROID_ADMOB_APP_ID,
-    iosAppId: process.env.ADMOB_IOS_APP_ID || DEFAULT_IOS_ADMOB_APP_ID,
-  },
-];
-
-const basePlatformPlugins = Array.isArray(baseConfig.plugins)
-  ? baseConfig.plugins.filter((p) =>
-      Array.isArray(p)
-        ? p[0] !== "react-native-google-mobile-ads"
-        : p !== "react-native-google-mobile-ads"
-    )
-  : [];
-
 const plugins = [
-  ...basePlatformPlugins,
-  adMobPlugin,
-  // TopOn ADX v6.4.87 — injects CocoaPods into Podfile during EAS Build
+  ...(Array.isArray(baseConfig.plugins) ? baseConfig.plugins : []),
+  // TopOn ADX v6.4.87 — injects CocoaPods + network adapters into Podfile during EAS Build
   "./plugins/withTopOn",
 ];
 
@@ -206,8 +185,6 @@ module.exports = {
         : baseConfig.ios?.bundleIdentifier,
       infoPlist: {
         ...(baseConfig.ios?.infoPlist || {}),
-        GADApplicationIdentifier:
-          process.env.ADMOB_IOS_APP_ID || DEFAULT_IOS_ADMOB_APP_ID,
         // Required for iOS 14+ — shown to user before any ad tracking begins
         NSUserTrackingUsageDescription:
           "We use this to show you relevant ads and keep the game free to play.",

@@ -1,158 +1,240 @@
 /**
- * AdManager — handles ad initialisation, ATT permission (iOS 14+), and
- * interstitial lifecycle for all 15 game variants.
+ * AdManager — TopOn ADX v6.4.87
  *
- * Ad stack:
- *   • react-native-google-mobile-ads  — JS/RN bridge (AdMob)
- *   • TopOn ADX CocoaPods (iOS)       — native mediation layer on top of AdMob
- *     The TopOn native SDK mediates across 15+ networks automatically;
- *     the JS layer only talks to the AdMob bridge as usual.
+ * Uses react-native-topon (TurboModule bridge) for Interstitial and Rewarded ads.
+ * No Google/AdMob dependency — TopOn mediates directly across 15+ ad networks.
  *
- * ATT flow (iOS 14+):
- *   requestTrackingPermission() → MobileAds.initialize() → loadInterstitial()
+ * Ad flow:
+ *   initializeAds() → SDK.init(appId, appKey)
+ *                   → loadInterstitial() + loadRewarded()
+ *                   → auto-reload on Close event
+ *
+ * ATT (iOS 14+):
+ *   requestTrackingPermissionsAsync() fires BEFORE SDK.init so TopOn
+ *   receives the IDFA if the user grants permission.
+ *
+ * Env vars (set per build profile in eas.json):
+ *   EXPO_PUBLIC_TOPON_APP_ID          — TopOn App ID for this game
+ *   EXPO_PUBLIC_TOPON_APP_KEY         — TopOn App Key for this game
+ *   EXPO_PUBLIC_TOPON_INTERSTITIAL_ID — Interstitial placement ID
+ *   EXPO_PUBLIC_TOPON_REWARDED_ID     — Rewarded video placement ID
+ *
+ * In __DEV__ builds, TopOn's official test placement IDs are used automatically.
  */
 
-import { Platform } from 'react-native';
+import { NativeEventEmitter, Platform } from 'react-native';
 
-import { currentGameConfig } from '@/config/games.config';
+// ─── TopOn test placement IDs (from TopOn SDK documentation) ─────────────────
+const TEST_INTERSTITIAL_ID = 'b5bacbc59b0253';
+const TEST_REWARDED_ID     = 'b5b449fb3d89d7';
 
-// Lazy-load to avoid crashing on web / simulator where native module is absent
-type AdsLib = typeof import('react-native-google-mobile-ads');
-let adsLib: AdsLib | null = null;
-
-type TrackingLib = typeof import('expo-tracking-transparency');
-let trackingLib: TrackingLib | null = null;
-
-let interstitial: ReturnType<AdsLib['InterstitialAd']['createForAdRequest']> | null = null;
+// ─── State ────────────────────────────────────────────────────────────────────
+let initialized      = false;
 let interstitialReady = false;
-let initialized = false;
+let rewardedReady     = false;
+let _emitter: NativeEventEmitter | null = null;
 
-// ─── helpers ──────────────────────────────────────────────────────────────────
+// ─── Helpers ──────────────────────────────────────────────────────────────────
 
-function getAdsLib(): AdsLib | null {
-  if (adsLib) return adsLib;
+function getTopOn() {
   if (Platform.OS === 'web') return null;
   try {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
-    adsLib = require('react-native-google-mobile-ads') as AdsLib;
-    return adsLib;
+    return require('react-native-topon');
   } catch {
     return null;
   }
 }
 
-function getTrackingLib(): TrackingLib | null {
-  if (trackingLib) return trackingLib;
-  if (Platform.OS !== 'ios') return null;
+function getEmitter(): NativeEventEmitter | null {
+  if (_emitter) return _emitter;
+  const mod = getTopOn();
+  if (!mod) return null;
+  try {
+    _emitter = new NativeEventEmitter(mod.default?.NativeModule ?? mod.NativeModule);
+    return _emitter;
+  } catch {
+    return null;
+  }
+}
+
+function interstitialPlacementId(): string {
+  if (__DEV__) return TEST_INTERSTITIAL_ID;
+  return process.env.EXPO_PUBLIC_TOPON_INTERSTITIAL_ID || TEST_INTERSTITIAL_ID;
+}
+
+function rewardedPlacementId(): string {
+  if (__DEV__) return TEST_REWARDED_ID;
+  return process.env.EXPO_PUBLIC_TOPON_REWARDED_ID || TEST_REWARDED_ID;
+}
+
+// ─── Ad loading ───────────────────────────────────────────────────────────────
+
+function loadInterstitial(): void {
+  const mod = getTopOn();
+  if (!mod) return;
+  try {
+    mod.Interstitial.loadAd(interstitialPlacementId());
+  } catch (e) {
+    console.warn('[AdManager] Interstitial load error:', e);
+  }
+}
+
+function loadRewarded(): void {
+  const mod = getTopOn();
+  if (!mod) return;
+  try {
+    mod.RewardedVideo.loadAd(rewardedPlacementId());
+  } catch (e) {
+    console.warn('[AdManager] Rewarded load error:', e);
+  }
+}
+
+// ─── Event listeners ──────────────────────────────────────────────────────────
+
+function setupEventListeners(): void {
+  const em = getEmitter();
+  const mod = getTopOn();
+  if (!em || !mod) return;
+
+  const { ToponEvents } = mod;
+
+  // Interstitial
+  em.addListener(ToponEvents.Interstitial.Loaded,   () => { interstitialReady = true; });
+  em.addListener(ToponEvents.Interstitial.LoadFail, () => { interstitialReady = false; });
+  em.addListener(ToponEvents.Interstitial.Close,    () => {
+    interstitialReady = false;
+    loadInterstitial(); // pre-load next
+  });
+
+  // Rewarded
+  em.addListener(ToponEvents.RewardedVideo.Loaded,   () => { rewardedReady = true; });
+  em.addListener(ToponEvents.RewardedVideo.LoadFail, () => { rewardedReady = false; });
+  em.addListener(ToponEvents.RewardedVideo.Close,    () => {
+    rewardedReady = false;
+    loadRewarded(); // pre-load next
+  });
+}
+
+// ─── ATT (iOS 14+) ────────────────────────────────────────────────────────────
+
+async function requestATTPermission(): Promise<void> {
+  if (Platform.OS !== 'ios') return;
   try {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
-    trackingLib = require('expo-tracking-transparency') as TrackingLib;
-    return trackingLib;
-  } catch {
-    return null;
-  }
-}
-
-// ─── ATT permission ───────────────────────────────────────────────────────────
-
-/**
- * Requests App Tracking Transparency permission on iOS 14+.
- * Must be called BEFORE initialising any ad SDK.
- * On Android and web this is a no-op.
- */
-async function requestTrackingPermission(): Promise<void> {
-  if (Platform.OS !== 'ios') return;
-  const tracking = getTrackingLib();
-  if (!tracking) return;
-  try {
-    const { status } = await tracking.requestTrackingPermissionsAsync();
-    // status is 'granted' | 'denied' | 'undetermined'
-    // We continue regardless — AdMob works in limited-ad-targeting mode when denied
+    const { requestTrackingPermissionsAsync } = require('expo-tracking-transparency');
+    const { status } = await requestTrackingPermissionsAsync();
     console.log('[AdManager] ATT status:', status);
   } catch (e) {
     console.warn('[AdManager] ATT request failed:', e);
   }
 }
 
-// ─── interstitial lifecycle ───────────────────────────────────────────────────
-
-function loadInterstitial(): void {
-  const ads = getAdsLib();
-  if (!ads) return;
-
-  const unitId = currentGameConfig.adUnits.interstitial;
-  interstitial = ads.InterstitialAd.createForAdRequest(unitId, {
-    requestNonPersonalizedAdsOnly: false,
-  });
-  interstitialReady = false;
-
-  interstitial.addAdEventListener(ads.AdEventType.LOADED, () => {
-    interstitialReady = true;
-  });
-
-  interstitial.addAdEventListener(ads.AdEventType.CLOSED, () => {
-    interstitialReady = false;
-    loadInterstitial(); // pre-load next ad
-  });
-
-  interstitial.addAdEventListener(ads.AdEventType.ERROR, (error) => {
-    console.warn('[AdManager] Interstitial error:', error);
-    interstitialReady = false;
-  });
-
-  interstitial.load();
-}
-
-// ─── public API ───────────────────────────────────────────────────────────────
+// ─── Public API ───────────────────────────────────────────────────────────────
 
 /**
- * Call once at app startup (e.g. in _layout.tsx useEffect).
- * Requests ATT → initialises MobileAds → pre-loads first interstitial.
+ * Call once at app startup (e.g. in app/_layout.tsx useEffect).
+ * Requests ATT on iOS → inits TopOn SDK → pre-loads first interstitial + rewarded.
  */
 export async function initializeAds(): Promise<void> {
-  if (initialized) return;
+  if (initialized || Platform.OS === 'web') {
+    initialized = true;
+    return;
+  }
 
-  // Step 1: ATT permission (iOS only, must come first)
-  await requestTrackingPermission();
+  // Step 1: ATT permission (must come before any ad SDK init on iOS 14+)
+  await requestATTPermission();
 
-  // Step 2: Init AdMob (TopOn native SDK is initialised automatically via CocoaPods)
-  const ads = getAdsLib();
-  if (!ads) {
+  // Step 2: Init TopOn SDK
+  const appId  = process.env.EXPO_PUBLIC_TOPON_APP_ID  || '';
+  const appKey = process.env.EXPO_PUBLIC_TOPON_APP_KEY || '';
+
+  const mod = getTopOn();
+  if (!mod) {
     initialized = true;
     return;
   }
 
   try {
-    await ads.MobileAds().initialize();
+    mod.SDK.init(appId, appKey);
+    setupEventListeners();
     loadInterstitial();
+    loadRewarded();
     initialized = true;
   } catch (e) {
-    console.warn('[AdManager] MobileAds init failed:', e);
-    initialized = false;
+    console.warn('[AdManager] TopOn init failed:', e);
   }
 }
 
 /**
- * Show an interstitial ad if one is loaded.
+ * Show an interstitial ad if one is ready.
  * Resolves when the user closes the ad (or immediately if no ad is ready).
- * Call this at natural break-points — e.g. after game-over before showing score.
  */
 export async function showInterstitial(): Promise<void> {
-  const ads = getAdsLib();
-  if (!ads || !interstitial || !interstitialReady) return;
+  const mod = getTopOn();
+  if (!mod || !interstitialReady) return;
 
-  await new Promise<void>((resolve) => {
-    const unsub = interstitial!.addAdEventListener(ads.AdEventType.CLOSED, () => {
-      unsub();
+  return new Promise((resolve) => {
+    const em = getEmitter();
+    if (!em) { resolve(); return; }
+
+    const { ToponEvents } = mod;
+    const sub = em.addListener(ToponEvents.Interstitial.Close, () => {
+      sub.remove();
       resolve();
     });
-    interstitial!.show();
+
+    try {
+      mod.Interstitial.showAd(interstitialPlacementId());
+    } catch (e) {
+      sub.remove();
+      console.warn('[AdManager] Interstitial show error:', e);
+      resolve();
+    }
   });
 }
 
 /**
- * Returns true if an interstitial is loaded and ready to display.
+ * Show a rewarded ad if one is ready.
+ * Resolves with `true` if the user earned the reward, `false` otherwise.
  */
+export async function showRewarded(): Promise<boolean> {
+  const mod = getTopOn();
+  if (!mod || !rewardedReady) return false;
+
+  return new Promise((resolve) => {
+    const em = getEmitter();
+    if (!em) { resolve(false); return; }
+
+    const { ToponEvents } = mod;
+    let earned = false;
+
+    const rewardSub = em.addListener(ToponEvents.RewardedVideo.Reward, () => {
+      earned = true;
+    });
+    const closeSub = em.addListener(ToponEvents.RewardedVideo.Close, () => {
+      rewardSub.remove();
+      closeSub.remove();
+      resolve(earned);
+    });
+
+    try {
+      mod.RewardedVideo.showAd(rewardedPlacementId());
+    } catch (e) {
+      rewardSub.remove();
+      closeSub.remove();
+      console.warn('[AdManager] Rewarded show error:', e);
+      resolve(false);
+    }
+  });
+}
+
+/** Returns true if an interstitial is loaded and ready. */
 export function isInterstitialReady(): boolean {
   return interstitialReady;
+}
+
+/** Returns true if a rewarded ad is loaded and ready. */
+export function isRewardedReady(): boolean {
+  return rewardedReady;
 }
