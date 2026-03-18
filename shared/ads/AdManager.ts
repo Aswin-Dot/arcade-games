@@ -156,6 +156,10 @@ export async function initializeAds(): Promise<void> {
   }
 
   try {
+    // Enable debug/test mode in non-production builds so TopOn shows test ads
+    if (__DEV__ || process.env.EXPO_PUBLIC_BUILD_ENV !== 'production') {
+      mod.SDK.setLogDebug(true);
+    }
     mod.SDK.init(appId, appKey);
     setupEventListeners();
     loadInterstitial();
