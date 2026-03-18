@@ -149,7 +149,7 @@ const VARIANT_EAS_PROJECT_IDS = {
   // EAS project IDs — one per game variant (created via `eas init` per variant)
   // To add a new game: run `APP_VARIANT=<game> eas init --non-interactive --force`
   // and paste the printed projectId here.
-  snake:          process.env.EAS_PROJECT_ID_SNAKE         || "681d3af1-1308-4f47-82ee-750db188cae2",
+  "snake":        process.env.EAS_PROJECT_ID_SNAKE         || "681d3af1-1308-4f47-82ee-750db188cae2",
   "circle-shrink":process.env.EAS_PROJECT_ID_CIRCLE_SHRINK || "f454d74b-5475-486a-9e9b-6a556836157f",
   "laser-dodge":  process.env.EAS_PROJECT_ID_LASER_DODGE   || "64b80ce3-9d0b-4ed6-b5b4-96510b86aee1",
   "pulse-lanes":  process.env.EAS_PROJECT_ID_PULSE_LANES   || "723112be-9ea5-457d-97ac-68677b796b73",

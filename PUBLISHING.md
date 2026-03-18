@@ -258,7 +258,7 @@ Apple requires iOS 26 SDK (Xcode 26) for submissions after April 28, 2026. Add `
 - Only fires once per app install — delete and reinstall to test again
 
 ### App rejected for missing privacy policy
-- Ensure GitHub Pages is enabled: repo Settings → Pages → Source: master `/docs`
+- Run `firebase deploy --only hosting` from the repo root to publish/update the site
 - Verify URL loads: `https://theze-games.web.app/privacy.html`
 
 ---
