@@ -160,13 +160,13 @@ const resolvedEasProjectId =
   (variant ? VARIANT_EAS_PROJECT_IDS[variant] : undefined);
 const plugins = [
   ...(Array.isArray(baseConfig.plugins) ? baseConfig.plugins : []),
-  // Raise iOS minimum deployment target to 14.0 — required by TopOn v6.4.88
-  // adapter pods (AppLovin, Pangle, UnityAds, etc.)
+  // Raise iOS minimum deployment target — Expo SDK 54 requires ≥ 15.1;
+  // TopOn v6.4.88 adapter pods (AppLovin, Pangle, UnityAds, etc.) require 16.0
   [
     "expo-build-properties",
     {
       ios: {
-        deploymentTarget: "14.0",
+        deploymentTarget: "16.0",
       },
     },
   ],
