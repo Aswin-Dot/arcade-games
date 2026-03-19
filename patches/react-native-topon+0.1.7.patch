@@ -1,0 +1,13 @@
+diff --git a/node_modules/react-native-topon/ios/Topon.mm b/node_modules/react-native-topon/ios/Topon.mm
+index df3c91d..56fccf7 100644
+--- a/node_modules/react-native-topon/ios/Topon.mm
++++ b/node_modules/react-native-topon/ios/Topon.mm
+@@ -416,7 +416,7 @@ static NSDictionary *ToponNativeMaterialToDictionary(ATNativeAdOffer *offer) {
+ 
+ - (void)setGDPRLevel:(double)level {
+   NSInteger gdprLevel = (NSInteger)level;
+-  [[ATAPI sharedInstance] setDataConsentSet:2 - gdprLevel consentString:nil];
++  [[ATAPI sharedInstance] setDataConsentSet:(ATDataConsentSet)(2 - gdprLevel) consentString:nil];
+ }
+ 
+ - (void)getGDPRLevel:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject {
