@@ -14,7 +14,7 @@ import {
   type LayoutChangeEvent,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { showInterstitial, showRewarded } from '@/shared/ads/AdManager';
+import { showInterstitial, showRewarded, isRewardedReady } from '@/shared/ads/AdManager';
 import GameOverScreen from '@/shared/components/GameOverScreen';
 
 // ─── Constants ───────────────────────────────────────────────────────────────
@@ -24,7 +24,7 @@ const INITIAL_SPEED = 160;
 const STORAGE_KEY = '@snake/highscore';
 
 type Direction = 'UP' | 'DOWN' | 'LEFT' | 'RIGHT';
-type GameStatus = 'IDLE' | 'RUNNING' | 'PAUSED' | 'DEAD';
+type GameStatus = 'IDLE' | 'RUNNING' | 'PAUSED' | 'DEAD' | 'CONTINUE_OFFER';
 type Point = { x: number; y: number };
 
 const DIRS: Record<Direction, Point> = {
@@ -51,6 +51,10 @@ interface GameState {
   level: number;
   speed: number;
   status: GameStatus;
+  /** Whether the player has already used their one continue this run */
+  continueUsed: boolean;
+  /** Ticks of invincibility remaining after a continue respawn */
+  invincibleTicks: number;
 }
 
 const randomFood = (snake: Point[]): Point => {
@@ -63,6 +67,9 @@ const randomFood = (snake: Point[]): Point => {
   } while (snake.some((s) => s.x === pos.x && s.y === pos.y));
   return pos;
 };
+
+/** Number of ticks the snake is invincible after continuing */
+const INVINCIBLE_TICKS = 8;
 
 const getInitialState = (): GameState => ({
   snake: [
@@ -77,6 +84,8 @@ const getInitialState = (): GameState => ({
   level: 1,
   speed: INITIAL_SPEED,
   status: 'IDLE',
+  continueUsed: false,
+  invincibleTicks: 0,
 });
 
 const DEFAULT_BOARD = 340;
@@ -113,6 +122,25 @@ export default function SnakeGame() {
   }, []);
 
   // ── Game loop tick ──────────────────────────────────────────────────────────
+
+  const handleDeath = useCallback((s: GameState) => {
+    setHighScore((hs) => {
+      const newHigh = Math.max(hs, s.score);
+      if (s.score > hs) {
+        AsyncStorage.setItem(STORAGE_KEY, s.score.toString());
+      }
+      return newHigh;
+    });
+    if (intervalRef.current) clearInterval(intervalRef.current);
+
+    // Offer continue if not yet used this run and a rewarded ad is available
+    if (!s.continueUsed && isRewardedReady()) {
+      setState((prev) => ({ ...prev, status: 'CONTINUE_OFFER' as const }));
+    } else {
+      setState((prev) => ({ ...prev, status: 'DEAD' as const }));
+    }
+  }, []);
+
   tickRef.current = () => {
     const s = stateRef.current;
     if (s.status !== 'RUNNING') return;
@@ -120,31 +148,23 @@ export default function SnakeGame() {
     const dir = DIRS[s.nextDirection];
     const head: Point = { x: s.snake[0].x + dir.x, y: s.snake[0].y + dir.y };
 
+    const isInvincible = s.invincibleTicks > 0;
+
     // Wall collision
     if (head.x < 0 || head.x >= GRID_SIZE || head.y < 0 || head.y >= GRID_SIZE) {
-      setHighScore((hs) => {
-        const newHigh = Math.max(hs, s.score);
-        if (s.score > hs) {
-          AsyncStorage.setItem(STORAGE_KEY, s.score.toString());
-        }
-        return newHigh;
-      });
-      setState((prev) => ({ ...prev, status: 'DEAD' as const }));
-      if (intervalRef.current) clearInterval(intervalRef.current);
-      return;
+      if (isInvincible) {
+        // Wrap around during invincibility so the snake doesn't die immediately
+        head.x = (head.x + GRID_SIZE) % GRID_SIZE;
+        head.y = (head.y + GRID_SIZE) % GRID_SIZE;
+      } else {
+        handleDeath(s);
+        return;
+      }
     }
 
-    // Self collision
-    if (s.snake.some((seg) => seg.x === head.x && seg.y === head.y)) {
-      setHighScore((hs) => {
-        const newHigh = Math.max(hs, s.score);
-        if (s.score > hs) {
-          AsyncStorage.setItem(STORAGE_KEY, s.score.toString());
-        }
-        return newHigh;
-      });
-      setState((prev) => ({ ...prev, status: 'DEAD' as const }));
-      if (intervalRef.current) clearInterval(intervalRef.current);
+    // Self collision (skip during invincibility)
+    if (!isInvincible && s.snake.some((seg) => seg.x === head.x && seg.y === head.y)) {
+      handleDeath(s);
       return;
     }
 
@@ -154,6 +174,7 @@ export default function SnakeGame() {
     const newLevel = Math.floor(newScore / 100) + 1;
     const newSpeed = Math.max(60, INITIAL_SPEED - (newLevel - 1) * 8);
     const newFood = ate ? randomFood(newSnake) : s.food;
+    const newInvincible = isInvincible ? s.invincibleTicks - 1 : 0;
 
     setState((prev) => ({
       ...prev,
@@ -163,6 +184,7 @@ export default function SnakeGame() {
       level: newLevel,
       speed: newSpeed,
       direction: prev.nextDirection,
+      invincibleTicks: newInvincible,
     }));
 
     // Adjust interval speed on level up
@@ -193,6 +215,62 @@ export default function SnakeGame() {
     launchGame();
   }, [launchGame]);
 
+  /** Continue after death: watch rewarded ad → respawn at center with same length */
+  const continueGame = useCallback(async () => {
+    const earned = await showRewarded();
+    if (!earned) {
+      // User skipped/closed the ad — go to game over
+      setState((prev) => ({ ...prev, status: 'DEAD' }));
+      return;
+    }
+
+    setState((prev) => {
+      const snakeLength = prev.snake.length;
+      const centerY = Math.floor(GRID_SIZE / 2);
+      // Place head far enough right so the full body fits on the grid
+      const headX = Math.min(
+        Math.floor(GRID_SIZE / 2),
+        GRID_SIZE - 1,
+      );
+      const startX = Math.max(headX, snakeLength - 1);
+      // Rebuild the snake horizontally from head going left, wrapping rows if needed
+      const newSnake: Point[] = [];
+      for (let i = 0; i < snakeLength; i++) {
+        const x = startX - i;
+        if (x >= 0) {
+          newSnake.push({ x, y: centerY });
+        } else {
+          // Wrap to the row above if snake is longer than grid width
+          const wrapRow = centerY - 1 - Math.floor((-x - 1) / GRID_SIZE);
+          const wrapX = GRID_SIZE - 1 - ((-x - 1) % GRID_SIZE);
+          newSnake.push({ x: wrapX, y: Math.max(0, wrapRow) });
+        }
+      }
+      // Make sure food doesn't overlap the new snake
+      const newFood = randomFood(newSnake);
+      return {
+        ...prev,
+        snake: newSnake,
+        food: newFood,
+        direction: 'RIGHT' as Direction,
+        nextDirection: 'RIGHT' as Direction,
+        status: 'RUNNING' as const,
+        continueUsed: true,
+        invincibleTicks: INVINCIBLE_TICKS,
+      };
+    });
+
+    // Restart the game loop at current speed
+    const currentSpeed = stateRef.current.speed;
+    if (intervalRef.current) clearInterval(intervalRef.current);
+    intervalRef.current = setInterval(() => tickRef.current?.(), currentSpeed);
+  }, []);
+
+  /** Decline the continue offer → go to game over (with interstitial) */
+  const declineContinue = useCallback(() => {
+    setState((prev) => ({ ...prev, status: 'DEAD', continueUsed: true }));
+  }, []);
+
   const togglePause = useCallback(() => {
     setState((prev) => {
       if (prev.status === 'RUNNING') {
@@ -207,10 +285,10 @@ export default function SnakeGame() {
     });
   }, []);
 
-  // Show interstitial ad on game over
+  // Show interstitial ad on game over — awaited so it doesn't overlap gameplay
   useEffect(() => {
     if (state.status === 'DEAD') {
-      showInterstitial();
+      showInterstitial().catch(() => {/* ad failed, continue */});
     }
   }, [state.status]);
 
@@ -243,6 +321,9 @@ export default function SnakeGame() {
   // ── Render helpers ──────────────────────────────────────────────────────────
   const snakeSet = new Set(state.snake.map((s) => `${s.x},${s.y}`));
   const headKey = `${state.snake[0].x},${state.snake[0].y}`;
+  const isInvincible = state.invincibleTicks > 0;
+  // Flash effect: alternate opacity every 2 ticks during invincibility
+  const invincibleOpacity = isInvincible ? (state.invincibleTicks % 2 === 0 ? 0.4 : 1) : 1;
 
   const renderBoard = () => {
     const cells: React.JSX.Element[] = [];
@@ -282,13 +363,14 @@ export default function SnakeGame() {
                 style={{
                   width: cell - 4,
                   height: cell - 4,
-                  backgroundColor: '#00ff88',
+                  backgroundColor: isInvincible ? '#88ffcc' : '#00ff88',
                   borderRadius: 5,
-                  shadowColor: '#00ff88',
+                  shadowColor: isInvincible ? '#88ffcc' : '#00ff88',
                   shadowOffset: { width: 0, height: 0 },
                   shadowOpacity: 1,
-                  shadowRadius: 6,
+                  shadowRadius: isInvincible ? 12 : 6,
                   position: 'relative',
+                  opacity: invincibleOpacity,
                 }}>
                 <View style={styles.eyeLeft} />
                 <View style={styles.eyeRight} />
@@ -299,9 +381,9 @@ export default function SnakeGame() {
                 style={{
                   width: cell - 5,
                   height: cell - 5,
-                  backgroundColor: '#00cc6a',
+                  backgroundColor: isInvincible ? '#66ddaa' : '#00cc6a',
                   borderRadius: 4,
-                  opacity,
+                  opacity: opacity * invincibleOpacity,
                 }}
               />
             )}
@@ -344,7 +426,26 @@ export default function SnakeGame() {
               </>
             )}
             {state.status === 'PAUSED' && <Text style={styles.overlayTitle}>PAUSED</Text>}
-            {state.status !== 'DEAD' && (
+            {state.status === 'CONTINUE_OFFER' && (
+              <>
+                <Text style={styles.overlayTitle}>YOU DIED!</Text>
+                <Text style={styles.overlayScore}>Score: {state.score}</Text>
+                <Text style={styles.overlayHint}>Watch an ad to continue with your snake</Text>
+                <TouchableOpacity
+                  style={[styles.startBtn, styles.continueBtn]}
+                  onPress={continueGame}
+                  activeOpacity={0.7}>
+                  <Text style={[styles.startBtnText, styles.continueBtnText]}>CONTINUE</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={styles.declineBtn}
+                  onPress={declineContinue}
+                  activeOpacity={0.7}>
+                  <Text style={styles.declineBtnText}>NO THANKS</Text>
+                </TouchableOpacity>
+              </>
+            )}
+            {(state.status === 'IDLE' || state.status === 'PAUSED') && (
               <TouchableOpacity
                 style={styles.startBtn}
                 onPress={state.status === 'PAUSED' ? togglePause : startGame}
@@ -561,6 +662,23 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '700',
     letterSpacing: 3,
+  },
+  continueBtn: {
+    borderColor: '#ffd700',
+    backgroundColor: 'rgba(255,215,0,0.08)',
+  },
+  continueBtnText: {
+    color: '#ffd700',
+  },
+  declineBtn: {
+    paddingVertical: 8,
+    paddingHorizontal: 24,
+  },
+  declineBtnText: {
+    color: 'rgba(255,255,255,0.35)',
+    fontSize: 11,
+    fontWeight: '600',
+    letterSpacing: 2,
   },
 
   // D-Pad

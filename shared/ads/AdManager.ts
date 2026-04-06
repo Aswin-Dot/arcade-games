@@ -34,6 +34,11 @@ let interstitialReady = false;
 let rewardedReady     = false;
 let _emitter: NativeEventEmitter | null = null;
 
+// ─── Frequency cap ───────────────────────────────────────────────────────────
+/** Minimum milliseconds between interstitial ads (avoids back-to-back ads). */
+const INTERSTITIAL_COOLDOWN_MS = 60_000;
+let lastInterstitialShownAt = 0;
+
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function getTopOn() {
@@ -178,11 +183,16 @@ export async function showInterstitial(): Promise<void> {
   const mod = getTopOn();
   if (!mod || !interstitialReady) return;
 
+  // Enforce frequency cap — skip if shown too recently
+  const now = Date.now();
+  if (now - lastInterstitialShownAt < INTERSTITIAL_COOLDOWN_MS) return;
+
   return new Promise((resolve) => {
     const em = getEmitter();
     if (!em) { resolve(); return; }
 
     const { ToponEvents } = mod;
+    lastInterstitialShownAt = Date.now();
     const sub = em.addListener(ToponEvents.Interstitial.Close, () => {
       sub.remove();
       resolve();
