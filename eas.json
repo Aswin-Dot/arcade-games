@@ -20,6 +20,7 @@
             "env": {
                 "APP_VARIANT": "snake",
                 "EXPO_PUBLIC_APP_VARIANT": "snake",
+                "EAS_PROJECT_ID": "681d3af1-1308-4f47-82ee-750db188cae2",
                 "EXPO_PUBLIC_TOPON_APP_ID": "h69b957f356b1d",
                 "EXPO_PUBLIC_TOPON_APP_KEY": "ac176a89ddfe0e1dc6e747aefcaf2604c",
                 "EXPO_PUBLIC_TOPON_INTERSTITIAL_ID": "n1h7d467fh35pu",
@@ -33,9 +34,11 @@
             }
         },
         "snake-production": {
+            "autoIncrement": true,
             "env": {
                 "APP_VARIANT": "snake",
                 "EXPO_PUBLIC_APP_VARIANT": "snake",
+                "EAS_PROJECT_ID": "681d3af1-1308-4f47-82ee-750db188cae2",
                 "EXPO_PUBLIC_TOPON_APP_ID": "h69b957f356b1d",
                 "EXPO_PUBLIC_TOPON_APP_KEY": "ac176a89ddfe0e1dc6e747aefcaf2604c",
                 "EXPO_PUBLIC_TOPON_INTERSTITIAL_ID": "n1h7d467fh35pu",
@@ -493,6 +496,13 @@
         }
     },
     "submit": {
-        "production": {}
+        "production": {
+            "ios": {
+                "ascAppId": "6760814736",
+                "ascApiKeyPath": "/Users/aswinraj/Downloads/AuthKey_99U622M7G6.p8",
+                "ascApiKeyId": "99U622M7G6",
+                "ascApiKeyIssuerId": "5eed739e-f1c7-4628-8ef7-d087d126b7be"
+            }
+        }
     }
 }

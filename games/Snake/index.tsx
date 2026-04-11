@@ -8,13 +8,17 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import {
   View,
   Text,
+  Pressable,
   TouchableOpacity,
   StyleSheet,
   type GestureResponderEvent,
   type LayoutChangeEvent,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { showInterstitial, showRewarded, isRewardedReady } from '@/shared/ads/AdManager';
+import { showInterstitial, recordGameCompleted } from '@/shared/ads/AdManager';
+
+/** Ticks of brief invincibility granted after unpausing (prevents instant death) */
+const UNPAUSE_GRACE_TICKS = 3;
 import GameOverScreen from '@/shared/components/GameOverScreen';
 
 // ─── Constants ───────────────────────────────────────────────────────────────
@@ -24,7 +28,7 @@ const INITIAL_SPEED = 160;
 const STORAGE_KEY = '@snake/highscore';
 
 type Direction = 'UP' | 'DOWN' | 'LEFT' | 'RIGHT';
-type GameStatus = 'IDLE' | 'RUNNING' | 'PAUSED' | 'DEAD' | 'CONTINUE_OFFER';
+type GameStatus = 'IDLE' | 'RUNNING' | 'PAUSED' | 'DEAD';
 type Point = { x: number; y: number };
 
 const DIRS: Record<Direction, Point> = {
@@ -51,8 +55,6 @@ interface GameState {
   level: number;
   speed: number;
   status: GameStatus;
-  /** Whether the player has already used their one continue this run */
-  continueUsed: boolean;
   /** Ticks of invincibility remaining after a continue respawn */
   invincibleTicks: number;
 }
@@ -84,7 +86,6 @@ const getInitialState = (): GameState => ({
   level: 1,
   speed: INITIAL_SPEED,
   status: 'IDLE',
-  continueUsed: false,
   invincibleTicks: 0,
 });
 
@@ -109,6 +110,8 @@ export default function SnakeGame() {
 
   const [state, setState] = useState<GameState>(getInitialState());
   const [highScore, setHighScore] = useState(0);
+  const [interstitialShown, setInterstitialShown] = useState(false);
+  const hasContinuedRef = useRef(false);
   const stateRef = useRef(state);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const tickRef = useRef<(() => void) | null>(null);
@@ -123,7 +126,7 @@ export default function SnakeGame() {
 
   // ── Game loop tick ──────────────────────────────────────────────────────────
 
-  const handleDeath = useCallback((s: GameState) => {
+  const triggerGameOver = useCallback(async (s: GameState) => {
     setHighScore((hs) => {
       const newHigh = Math.max(hs, s.score);
       if (s.score > hs) {
@@ -132,13 +135,10 @@ export default function SnakeGame() {
       return newHigh;
     });
     if (intervalRef.current) clearInterval(intervalRef.current);
-
-    // Offer continue if not yet used this run and a rewarded ad is available
-    if (!s.continueUsed && isRewardedReady()) {
-      setState((prev) => ({ ...prev, status: 'CONTINUE_OFFER' as const }));
-    } else {
-      setState((prev) => ({ ...prev, status: 'DEAD' as const }));
-    }
+    setState((prev) => ({ ...prev, status: 'DEAD' as const }));
+    recordGameCompleted();
+    const adShown = await showInterstitial();
+    setInterstitialShown(adShown);
   }, []);
 
   tickRef.current = () => {
@@ -157,14 +157,14 @@ export default function SnakeGame() {
         head.x = (head.x + GRID_SIZE) % GRID_SIZE;
         head.y = (head.y + GRID_SIZE) % GRID_SIZE;
       } else {
-        handleDeath(s);
+        triggerGameOver(s);
         return;
       }
     }
 
     // Self collision (skip during invincibility)
     if (!isInvincible && s.snake.some((seg) => seg.x === head.x && seg.y === head.y)) {
-      handleDeath(s);
+      triggerGameOver(s);
       return;
     }
 
@@ -195,58 +195,88 @@ export default function SnakeGame() {
   };
 
   // ── Controls ────────────────────────────────────────────────────────────────
+  const changeDirRef = useRef<((d: Direction) => void) | null>(null);
+
   const changeDir = useCallback((newDir: Direction) => {
     setState((prev) => {
+      if (prev.status === 'IDLE') {
+        // Auto-start the game on first arrow press
+        return prev; // handled below via startFromArrow
+      }
       if (prev.status !== 'RUNNING') return prev;
       if (OPPOSITES[newDir] === prev.direction) return prev;
       return { ...prev, nextDirection: newDir };
     });
   }, []);
 
+  /** Start the game when an arrow is pressed from IDLE state */
+  const startFromArrow = useCallback(
+    (dir: Direction) => {
+      if (stateRef.current.status !== 'IDLE') return;
+      if (intervalRef.current) clearInterval(intervalRef.current);
+      hasContinuedRef.current = false;
+      setInterstitialShown(false);
+      const fresh: GameState = {
+        ...getInitialState(),
+        status: 'RUNNING',
+        direction: dir,
+        nextDirection: dir,
+      };
+      setState(fresh);
+      intervalRef.current = setInterval(() => tickRef.current?.(), INITIAL_SPEED);
+    },
+    [],
+  );
+
+  /** Handle a D-Pad arrow press — starts game if idle, otherwise changes direction */
+  const handleArrow = useCallback(
+    (dir: Direction) => {
+      if (stateRef.current.status === 'IDLE') {
+        startFromArrow(dir);
+      } else {
+        changeDir(dir);
+      }
+    },
+    [changeDir, startFromArrow],
+  );
+
+  changeDirRef.current = handleArrow;
+  const togglePauseRef = useRef<(() => void) | null>(null);
+
   const launchGame = useCallback(() => {
     if (intervalRef.current) clearInterval(intervalRef.current);
+    hasContinuedRef.current = false;
+    setInterstitialShown(false);
     const fresh: GameState = { ...getInitialState(), status: 'RUNNING' };
     setState(fresh);
     intervalRef.current = setInterval(() => tickRef.current?.(), INITIAL_SPEED);
   }, []);
 
-  const startGame = useCallback(async () => {
-    await showRewarded();
+  // No ad before gameplay — Apple Guideline 4 rejects pre-play ads
+  const startGame = useCallback(() => {
     launchGame();
   }, [launchGame]);
 
-  /** Continue after death: watch rewarded ad → respawn at center with same length */
-  const continueGame = useCallback(async () => {
-    const earned = await showRewarded();
-    if (!earned) {
-      // User skipped/closed the ad — go to game over
-      setState((prev) => ({ ...prev, status: 'DEAD' }));
-      return;
-    }
+  /** Continue: respawn snake at center with same length + brief invincibility */
+  const handleContinue = useCallback(() => {
+    hasContinuedRef.current = true;
 
     setState((prev) => {
       const snakeLength = prev.snake.length;
       const centerY = Math.floor(GRID_SIZE / 2);
-      // Place head far enough right so the full body fits on the grid
-      const headX = Math.min(
-        Math.floor(GRID_SIZE / 2),
-        GRID_SIZE - 1,
-      );
+      const headX = Math.min(Math.floor(GRID_SIZE / 2), GRID_SIZE - 1);
       const startX = Math.max(headX, snakeLength - 1);
-      // Rebuild the snake horizontally from head going left, wrapping rows if needed
       const newSnake: Point[] = [];
       for (let i = 0; i < snakeLength; i++) {
         const x = startX - i;
         if (x >= 0) {
           newSnake.push({ x, y: centerY });
         } else {
-          // Wrap to the row above if snake is longer than grid width
           const wrapRow = centerY - 1 - Math.floor((-x - 1) / GRID_SIZE);
           const wrapX = GRID_SIZE - 1 - ((-x - 1) % GRID_SIZE);
           newSnake.push({ x: wrapX, y: Math.max(0, wrapRow) });
         }
       }
-      // Make sure food doesn't overlap the new snake
       const newFood = randomFood(newSnake);
       return {
         ...prev,
@@ -255,7 +285,6 @@ export default function SnakeGame() {
         direction: 'RIGHT' as Direction,
         nextDirection: 'RIGHT' as Direction,
         status: 'RUNNING' as const,
-        continueUsed: true,
         invincibleTicks: INVINCIBLE_TICKS,
       };
     });
@@ -266,11 +295,6 @@ export default function SnakeGame() {
     intervalRef.current = setInterval(() => tickRef.current?.(), currentSpeed);
   }, []);
 
-  /** Decline the continue offer → go to game over (with interstitial) */
-  const declineContinue = useCallback(() => {
-    setState((prev) => ({ ...prev, status: 'DEAD', continueUsed: true }));
-  }, []);
-
   const togglePause = useCallback(() => {
     setState((prev) => {
       if (prev.status === 'RUNNING') {
@@ -279,18 +303,37 @@ export default function SnakeGame() {
       }
       if (prev.status === 'PAUSED') {
         intervalRef.current = setInterval(() => tickRef.current?.(), prev.speed);
-        return { ...prev, status: 'RUNNING' };
+        return { ...prev, status: 'RUNNING', invincibleTicks: UNPAUSE_GRACE_TICKS };
       }
       return prev;
     });
   }, []);
 
-  // Show interstitial ad on game over — awaited so it doesn't overlap gameplay
+  togglePauseRef.current = togglePause;
+
+  // ── Hardware keyboard support (iPad Magic Keyboard) ────────────────────────
   useEffect(() => {
-    if (state.status === 'DEAD') {
-      showInterstitial().catch(() => {/* ad failed, continue */});
-    }
-  }, [state.status]);
+    if (typeof document === 'undefined') return;
+    const keyMap: Record<string, Direction> = {
+      ArrowUp: 'UP',
+      ArrowDown: 'DOWN',
+      ArrowLeft: 'LEFT',
+      ArrowRight: 'RIGHT',
+    };
+    const handler = (e: KeyboardEvent) => {
+      const dir = keyMap[e.key];
+      if (dir) {
+        e.preventDefault();
+        changeDirRef.current?.(dir);
+      }
+      if (e.key === ' ') {
+        e.preventDefault();
+        togglePauseRef.current?.();
+      }
+    };
+    document.addEventListener('keydown', handler);
+    return () => document.removeEventListener('keydown', handler);
+  }, []);
 
   useEffect(
     () => () => {
@@ -311,9 +354,9 @@ export default function SnakeGame() {
     const dx = t.pageX - touchStart.current.x;
     const dy = t.pageY - touchStart.current.y;
     if (Math.abs(dx) > Math.abs(dy)) {
-      changeDir(dx > 0 ? 'RIGHT' : 'LEFT');
+      handleArrow(dx > 0 ? 'RIGHT' : 'LEFT');
     } else {
-      changeDir(dy > 0 ? 'DOWN' : 'UP');
+      handleArrow(dy > 0 ? 'DOWN' : 'UP');
     }
     touchStart.current = null;
   };
@@ -426,25 +469,6 @@ export default function SnakeGame() {
               </>
             )}
             {state.status === 'PAUSED' && <Text style={styles.overlayTitle}>PAUSED</Text>}
-            {state.status === 'CONTINUE_OFFER' && (
-              <>
-                <Text style={styles.overlayTitle}>YOU DIED!</Text>
-                <Text style={styles.overlayScore}>Score: {state.score}</Text>
-                <Text style={styles.overlayHint}>Watch an ad to continue with your snake</Text>
-                <TouchableOpacity
-                  style={[styles.startBtn, styles.continueBtn]}
-                  onPress={continueGame}
-                  activeOpacity={0.7}>
-                  <Text style={[styles.startBtnText, styles.continueBtnText]}>CONTINUE</Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={styles.declineBtn}
-                  onPress={declineContinue}
-                  activeOpacity={0.7}>
-                  <Text style={styles.declineBtnText}>NO THANKS</Text>
-                </TouchableOpacity>
-              </>
-            )}
             {(state.status === 'IDLE' || state.status === 'PAUSED') && (
               <TouchableOpacity
                 style={styles.startBtn}
@@ -466,21 +490,24 @@ export default function SnakeGame() {
           highScore={highScore}
           accentColor="#00ff88"
           onReplay={launchGame}
+          onContinue={handleContinue}
+          showContinue={!hasContinuedRef.current && !interstitialShown}
+          continueSubtext="Respawn with your snake and keep your score by watching an ad"
         />
       )}
 
       {/* ── D-Pad ── */}
       <View style={styles.dpad}>
         <View style={styles.dpadRow}>
-          <DPadBtn label={'\u25B2'} onPress={() => changeDir('UP')} />
+          <DPadBtn label={'\u25B2'} onPress={() => handleArrow('UP')} />
         </View>
         <View style={styles.dpadRow}>
-          <DPadBtn label={'\u25C4'} onPress={() => changeDir('LEFT')} />
+          <DPadBtn label={'\u25C4'} onPress={() => handleArrow('LEFT')} />
           <DPadBtn label={'\u23F8'} onPress={togglePause} accent />
-          <DPadBtn label={'\u25BA'} onPress={() => changeDir('RIGHT')} />
+          <DPadBtn label={'\u25BA'} onPress={() => handleArrow('RIGHT')} />
         </View>
         <View style={styles.dpadRow}>
-          <DPadBtn label={'\u25BC'} onPress={() => changeDir('DOWN')} />
+          <DPadBtn label={'\u25BC'} onPress={() => handleArrow('DOWN')} />
         </View>
       </View>
 
@@ -500,6 +527,8 @@ function StatBox({ label, value, color }: { label: string; value: number; color:
   );
 }
 
+const DPAD_HIT_SLOP = { top: 8, bottom: 8, left: 8, right: 8 };
+
 function DPadBtn({
   label,
   onPress,
@@ -510,12 +539,16 @@ function DPadBtn({
   accent?: boolean;
 }) {
   return (
-    <TouchableOpacity
-      style={[styles.dpadBtn, accent && styles.dpadBtnAccent]}
+    <Pressable
+      style={({ pressed }) => [
+        styles.dpadBtn,
+        accent && styles.dpadBtnAccent,
+        pressed && { opacity: 0.6 },
+      ]}
       onPress={onPress}
-      activeOpacity={0.6}>
+      hitSlop={DPAD_HIT_SLOP}>
       <Text style={[styles.dpadBtnText, accent && { color: '#00ff88' }]}>{label}</Text>
-    </TouchableOpacity>
+    </Pressable>
   );
 }
 
@@ -633,21 +666,10 @@ const styles = StyleSheet.create({
     textShadowOffset: { width: 0, height: 0 },
     textShadowRadius: 12,
   },
-  overlayScore: {
-    fontSize: 18,
-    color: '#fff',
-    letterSpacing: 2,
-  },
   overlayHint: {
     fontSize: 12,
     color: 'rgba(255,255,255,0.4)',
     letterSpacing: 1,
-  },
-  newHigh: {
-    fontSize: 12,
-    color: '#ffd700',
-    letterSpacing: 2,
-    fontWeight: '700',
   },
   startBtn: {
     marginTop: 8,
@@ -663,24 +685,6 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     letterSpacing: 3,
   },
-  continueBtn: {
-    borderColor: '#ffd700',
-    backgroundColor: 'rgba(255,215,0,0.08)',
-  },
-  continueBtnText: {
-    color: '#ffd700',
-  },
-  declineBtn: {
-    paddingVertical: 8,
-    paddingHorizontal: 24,
-  },
-  declineBtnText: {
-    color: 'rgba(255,255,255,0.35)',
-    fontSize: 11,
-    fontWeight: '600',
-    letterSpacing: 2,
-  },
-
   // D-Pad
   dpad: {
     alignItems: 'center',

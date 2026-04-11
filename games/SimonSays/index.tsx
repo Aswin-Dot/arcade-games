@@ -15,7 +15,7 @@ import Animated, {
 } from 'react-native-reanimated';
 import * as Haptics from 'expo-haptics';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { showInterstitial, showRewarded } from '@/shared/ads/AdManager';
+import { showInterstitial, recordGameCompleted } from '@/shared/ads/AdManager';
 import GameOverScreen from '@/shared/components/GameOverScreen';
 
 const STORAGE_KEY = '@simon-says/highscore';
@@ -39,6 +39,8 @@ export default function SimonSays() {
   const [phase, setPhase] = useState<GamePhase>('idle');
   const [score, setScore] = useState(0);
   const [highScore, setHighScore] = useState(0);
+  const [interstitialShown, setInterstitialShown] = useState(false);
+  const hasContinuedRef = useRef(false);
   const [sequence, setSequence] = useState<number[]>([]);
   const [activePanel, setActivePanel] = useState<number | null>(null);
 
@@ -117,7 +119,9 @@ export default function SimonSays() {
     phaseRef.current = 'over';
     setPhase('over');
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
-    showInterstitial();
+    recordGameCompleted();
+    const adShown = await showInterstitial();
+    setInterstitialShown(adShown);
     const finalScore = sequenceRef.current.length - 1;
     const stored = await AsyncStorage.getItem(STORAGE_KEY);
     const prev = stored ? parseInt(stored, 10) : 0;
@@ -160,6 +164,8 @@ export default function SimonSays() {
   );
 
   const launchGame = useCallback(() => {
+    hasContinuedRef.current = false;
+    setInterstitialShown(false);
     clearTimeouts();
     glows.forEach((g) => { g.value = 0; });
     const first = Math.floor(Math.random() * 4);
@@ -172,9 +178,14 @@ export default function SimonSays() {
     showSequence(initial);
   }, [clearTimeouts, glows, showSequence]);
 
+  const handleContinue = useCallback(() => {
+    hasContinuedRef.current = true;
+    inputIdxRef.current = 0;
+    showSequence(sequenceRef.current);
+  }, [showSequence]);
+
   const handleScreenTap = useCallback(() => {
     if (phase === 'idle') {
-      showRewarded();
       launchGame();
     }
   }, [phase, launchGame]);
@@ -224,7 +235,16 @@ export default function SimonSays() {
       )}
 
       {phase === 'over' && (
-        <GameOverScreen score={score} highScore={highScore} accentColor="#ffd700" scoreLabel="Round" onReplay={launchGame} />
+        <GameOverScreen
+          score={score}
+          highScore={highScore}
+          accentColor="#ffd700"
+          scoreLabel="Round"
+          onReplay={launchGame}
+          onContinue={handleContinue}
+          showContinue={!hasContinuedRef.current && !interstitialShown}
+          continueSubtext="Retry this sequence and keep your score by watching an ad"
+        />
       )}
     </View>
   );

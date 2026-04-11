@@ -1,8 +1,8 @@
-import React, { useState, useCallback, useEffect } from 'react';
+import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { View, Text, StyleSheet, Dimensions, TouchableOpacity, TouchableWithoutFeedback } from 'react-native';
 import * as Haptics from 'expo-haptics';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { showInterstitial, showRewarded } from '@/shared/ads/AdManager';
+import { showInterstitial, recordGameCompleted } from '@/shared/ads/AdManager';
 import GameOverScreen from '@/shared/components/GameOverScreen';
 
 const STORAGE_KEY = '@color-flood/highscore';
@@ -112,10 +112,12 @@ export default function ColorFlood() {
   const [score, setScore] = useState(0);
   const [highScore, setHighScore] = useState(0);
   const [owned, setOwned] = useState(1);
+  const [maxMoves, setMaxMoves] = useState(MAX_MOVES);
+  const [interstitialShown, setInterstitialShown] = useState(false);
+  const hasContinuedRef = useRef(false);
 
   useEffect(() => {
     AsyncStorage.getItem(STORAGE_KEY).then((v) => { if (v) setHighScore(parseInt(v, 10)); });
-    showRewarded();
   }, []);
 
   useEffect(() => {
@@ -139,10 +141,12 @@ export default function ColorFlood() {
 
       if (newOwned === total) {
         // Won
-        const finalScore = (MAX_MOVES - newMoves + 1) * 100;
+        const finalScore = (maxMoves - newMoves + 1) * 100;
         setScore(finalScore);
         setPhase('won');
-        showInterstitial();
+        recordGameCompleted();
+        const adShown = await showInterstitial();
+        setInterstitialShown(adShown);
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
         const stored = await AsyncStorage.getItem(STORAGE_KEY);
         const prev = stored ? parseInt(stored, 10) : 0;
@@ -150,12 +154,14 @@ export default function ColorFlood() {
           await AsyncStorage.setItem(STORAGE_KEY, finalScore.toString());
           setHighScore(finalScore);
         }
-      } else if (newMoves >= MAX_MOVES) {
+      } else if (newMoves >= maxMoves) {
         // Out of moves
         const finalScore = Math.floor((newOwned / total) * 500);
         setScore(finalScore);
         setPhase('over');
-        showInterstitial();
+        recordGameCompleted();
+        const adShown = await showInterstitial();
+        setInterstitialShown(adShown);
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
         const stored = await AsyncStorage.getItem(STORAGE_KEY);
         const prev = stored ? parseInt(stored, 10) : 0;
@@ -165,15 +171,24 @@ export default function ColorFlood() {
         }
       }
     },
-    [phase, grid, moves],
+    [phase, grid, moves, maxMoves],
   );
 
+  const handleContinue = useCallback(() => {
+    setMaxMoves((prev) => prev + 5);
+    hasContinuedRef.current = true;
+    setPhase('playing');
+  }, []);
+
   const launchGame = useCallback(() => {
+    hasContinuedRef.current = false;
+    setInterstitialShown(false);
     const fresh = makeGrid();
     setGrid(fresh);
     setMoves(0);
     setScore(0);
     setOwned(countOwned(fresh));
+    setMaxMoves(MAX_MOVES);
     setPhase('playing');
   }, []);
 
@@ -184,7 +199,7 @@ export default function ColorFlood() {
     <View style={styles.container}>
       {/* HUD */}
       <View style={styles.hud}>
-        <Text style={styles.movesText}>Moves: {moves}/{MAX_MOVES}</Text>
+        <Text style={styles.movesText}>Moves: {moves}/{maxMoves}</Text>
         <Text style={styles.progressText}>{progressPct}% captured</Text>
         <Text style={styles.highScoreText}>Best: {highScore}</Text>
       </View>
@@ -225,11 +240,27 @@ export default function ColorFlood() {
       <Text style={styles.hint}>Flood-fill the grid with one color</Text>
 
       {phase === 'won' && (
-        <GameOverScreen score={score} highScore={highScore} accentColor="#a855f7" onReplay={launchGame} />
+        <GameOverScreen
+          score={score}
+          highScore={highScore}
+          accentColor="#a855f7"
+          onReplay={launchGame}
+          onContinue={handleContinue}
+          showContinue={!hasContinuedRef.current && !interstitialShown}
+          continueSubtext="Get 5 extra moves and keep your progress by watching an ad"
+        />
       )}
 
       {phase === 'over' && (
-        <GameOverScreen score={score} highScore={highScore} accentColor="#a855f7" onReplay={launchGame} />
+        <GameOverScreen
+          score={score}
+          highScore={highScore}
+          accentColor="#a855f7"
+          onReplay={launchGame}
+          onContinue={handleContinue}
+          showContinue={!hasContinuedRef.current && !interstitialShown}
+          continueSubtext="Get 5 extra moves and keep your progress by watching an ad"
+        />
       )}
     </View>
   );

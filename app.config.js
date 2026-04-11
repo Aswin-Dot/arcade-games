@@ -141,26 +141,26 @@ const VARIANTS = {
 const requestedVariant =
   process.env.APP_VARIANT || process.env.EXPO_PUBLIC_APP_VARIANT;
 const variant =
-  requestedVariant && VARIANTS[requestedVariant]
-    ? requestedVariant
-    : undefined;
+  requestedVariant && VARIANTS[requestedVariant] ? requestedVariant : undefined;
 const selectedVariant = variant ? VARIANTS[variant] : null;
 const VARIANT_EAS_PROJECT_IDS = {
   // EAS project IDs — one per game variant (created via `eas init` per variant)
   // To add a new game: run `APP_VARIANT=<game> eas init --non-interactive --force`
   // and paste the printed projectId here.
-  "snake":        process.env.EAS_PROJECT_ID_SNAKE         || "681d3af1-1308-4f47-82ee-750db188cae2",
-  "circle-shrink":process.env.EAS_PROJECT_ID_CIRCLE_SHRINK || "f454d74b-5475-486a-9e9b-6a556836157f",
-  "laser-dodge":  process.env.EAS_PROJECT_ID_LASER_DODGE   || "64b80ce3-9d0b-4ed6-b5b4-96510b86aee1",
-  "pulse-lanes":  process.env.EAS_PROJECT_ID_PULSE_LANES   || "723112be-9ea5-457d-97ac-68677b796b73",
-  "math-rush":    process.env.EAS_PROJECT_ID_MATH_RUSH     || "56ccd40d-7650-4928-a49a-55e3498881d6",
+  snake: process.env.EAS_PROJECT_ID_SNAKE,
+  "circle-shrink": process.env.EAS_PROJECT_ID_CIRCLE_SHRINK,
+  "laser-dodge": process.env.EAS_PROJECT_ID_LASER_DODGE,
+  "pulse-lanes": process.env.EAS_PROJECT_ID_PULSE_LANES,
+  "math-rush": process.env.EAS_PROJECT_ID_MATH_RUSH,
 };
 const resolvedEasProjectId =
   process.env.EAS_PROJECT_ID ||
   (variant ? VARIANT_EAS_PROJECT_IDS[variant] : undefined);
 // Build plugins array — override expo-splash-screen with per-game icon when variant is set
 const basePlugins = Array.isArray(baseConfig.plugins) ? baseConfig.plugins : [];
-const splashImage = selectedVariant ? selectedVariant.icon : "./assets/images/splash-icon.png";
+const splashImage = selectedVariant
+  ? selectedVariant.icon
+  : "./assets/images/splash-icon.png";
 const plugins = [
   // Re-add base plugins but replace expo-splash-screen config with variant icon
   ...basePlugins.map((p) => {
@@ -183,6 +183,15 @@ const plugins = [
       ios: {
         deploymentTarget: "17.0",
       },
+    },
+  ],
+  // Ensures the ATT permission key is injected into Info.plist via the
+  // official config plugin (required for the prompt to appear on iPadOS 26.4+)
+  [
+    "expo-tracking-transparency",
+    {
+      userTrackingPermission:
+        "We use this to show you relevant ads and keep the game free to play.",
     },
   ],
 ];

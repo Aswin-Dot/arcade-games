@@ -1,10 +1,10 @@
-import React, { useState, useCallback, useEffect, useMemo } from 'react';
+import React, { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import { View, Text, StyleSheet, Dimensions } from 'react-native';
 import Animated, { useSharedValue, useAnimatedStyle, withSequence, withTiming } from 'react-native-reanimated';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import * as Haptics from 'expo-haptics';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { showInterstitial, showRewarded } from '@/shared/ads/AdManager';
+import { showInterstitial, recordGameCompleted } from '@/shared/ads/AdManager';
 import GameOverScreen from '@/shared/components/GameOverScreen';
 
 const STORAGE_KEY = '@tile-shift/highscore';
@@ -146,19 +146,18 @@ export default function TileShift() {
   const [score, setScore] = useState(0);
   const [highScore, setHighScore] = useState(0);
   const [bestTile, setBestTile] = useState(0);
+  const [interstitialShown, setInterstitialShown] = useState(false);
+  const hasContinuedRef = useRef(false);
 
   const scoreRef = React.useRef(0);
   const gridRef = React.useRef(grid);
+  const gridHistoryRef = useRef<number[][]>([]);
   const cellScales = useCellScales();
 
   useEffect(() => { gridRef.current = grid; }, [grid]);
 
   useEffect(() => {
     AsyncStorage.getItem(STORAGE_KEY).then((v) => { if (v) setHighScore(parseInt(v, 10)); });
-  }, []);
-
-  useEffect(() => {
-    showRewarded();
   }, []);
 
   const saveHighScore = useCallback(async (s: number) => {
@@ -171,8 +170,15 @@ export default function TileShift() {
   }, []);
 
   const doMove = useCallback(
-    (dir: 'left' | 'right' | 'up' | 'down') => {
+    async (dir: 'left' | 'right' | 'up' | 'down') => {
       if (phase !== 'playing') return;
+
+      // Save grid state for continue feature (keep last 3)
+      const history = gridHistoryRef.current;
+      history.push([...gridRef.current]);
+      if (history.length > 3) history.shift();
+      gridHistoryRef.current = history;
+
       const { grid: newGrid, score: gained, moved } = moveGrid(gridRef.current, dir);
       if (!moved) return;
 
@@ -199,7 +205,9 @@ export default function TileShift() {
       if (!hasValidMove(withNew)) {
         setPhase('over');
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
-        showInterstitial();
+        recordGameCompleted();
+        const adShown = await showInterstitial();
+        setInterstitialShown(adShown);
       }
     },
     [phase, cellScales, saveHighScore],
@@ -222,7 +230,33 @@ export default function TileShift() {
     [phase, doMove],
   );
 
+  const handleContinue = useCallback(() => {
+    const history = gridHistoryRef.current;
+    if (history.length > 0) {
+      const restored = history[0];
+      gridHistoryRef.current = [];
+      gridRef.current = restored;
+      setGrid(restored);
+      setBestTile(Math.max(...restored));
+    } else {
+      const current = [...gridRef.current];
+      const nonEmpty = current.reduce<number[]>((acc, v, i) => { if (v !== 0) acc.push(i); return acc; }, []);
+      for (let i = 0; i < 3 && nonEmpty.length > 0; i++) {
+        const pick = Math.floor(Math.random() * nonEmpty.length);
+        current[nonEmpty[pick]] = 0;
+        nonEmpty.splice(pick, 1);
+      }
+      gridRef.current = current;
+      setGrid(current);
+      setBestTile(Math.max(...current));
+    }
+    hasContinuedRef.current = true;
+    setPhase('playing');
+  }, []);
+
   const launchGame = useCallback(() => {
+    hasContinuedRef.current = false;
+    setInterstitialShown(false);
     scoreRef.current = 0;
     const fresh = initGrid();
     gridRef.current = fresh;
@@ -262,7 +296,7 @@ export default function TileShift() {
         <Text style={styles.hint}>Swipe to shift tiles • Match to merge</Text>
 
         {phase === 'over' && (
-          <GameOverScreen score={score} highScore={highScore} accentColor="#ffd700" onReplay={launchGame} />
+          <GameOverScreen score={score} highScore={highScore} accentColor="#ffd700" onReplay={launchGame} onContinue={handleContinue} showContinue={!hasContinuedRef.current && !interstitialShown} continueSubtext="Undo last 3 moves and keep your score by watching an ad" />
         )}
       </View>
     </GestureDetector>

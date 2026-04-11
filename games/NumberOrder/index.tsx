@@ -14,7 +14,7 @@ import Animated, {
 import * as Haptics from 'expo-haptics';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useGameLoop } from '../../shared/hooks/useGameLoop';
-import { showInterstitial, showRewarded } from "@/shared/ads/AdManager";
+import { showInterstitial, recordGameCompleted } from "@/shared/ads/AdManager";
 import GameOverScreen from "@/shared/components/GameOverScreen";
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
@@ -40,6 +40,8 @@ export default function NumberOrder() {
   const [highScore, setHighScore] = useState(0);
   const [lives, setLives] = useState(3);
   const [nextToTap, setNextToTap] = useState(1);
+  const [interstitialShown, setInterstitialShown] = useState(false);
+  const hasContinuedRef = useRef(false);
   const [items, setItems] = useState<NumberItem[]>(
     Array.from({ length: NUM_SLOTS }, () => ({ value: 0, x: 0 })),
   );
@@ -98,7 +100,9 @@ export default function NumberOrder() {
     phaseRef.current = 'over';
     setPhase('over');
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
-    showInterstitial();
+    recordGameCompleted();
+    const adShown = await showInterstitial();
+    setInterstitialShown(adShown);
     const finalScore = scoreRef.current;
     const stored = await AsyncStorage.getItem(STORAGE_KEY);
     const prev = stored ? parseInt(stored, 10) : 0;
@@ -202,7 +206,17 @@ export default function NumberOrder() {
     [ys, viss, updateLives, triggerGameOver],
   );
 
+  const handleContinue = useCallback(() => {
+    livesRef.current = 1;
+    setLives(1);
+    hasContinuedRef.current = true;
+    phaseRef.current = 'playing';
+    setPhase('playing');
+  }, []);
+
   const launchGame = useCallback(() => {
+    hasContinuedRef.current = false;
+    setInterstitialShown(false);
     scoreRef.current = 0;
     livesRef.current = 3;
     nextToTapRef.current = 1;
@@ -226,7 +240,6 @@ export default function NumberOrder() {
 
   const handleScreenTap = useCallback(() => {
     if (phase === 'idle') {
-      showRewarded();
       launchGame();
     }
   }, [phase, launchGame]);
@@ -273,7 +286,15 @@ export default function NumberOrder() {
       )}
 
       {phase === 'over' && (
-        <GameOverScreen score={score} highScore={highScore} accentColor="#60a5fa" onReplay={launchGame} />
+        <GameOverScreen
+          score={score}
+          highScore={highScore}
+          accentColor="#60a5fa"
+          onReplay={launchGame}
+          onContinue={handleContinue}
+          showContinue={!hasContinuedRef.current && !interstitialShown}
+          continueSubtext="Get an extra life and keep your progress by watching an ad"
+        />
       )}
     </View>
   );

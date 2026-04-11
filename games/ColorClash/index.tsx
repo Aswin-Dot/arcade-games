@@ -17,7 +17,7 @@ import Animated, {
 import * as Haptics from 'expo-haptics';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useGameLoop } from '../../shared/hooks/useGameLoop';
-import { showInterstitial, showRewarded } from "@/shared/ads/AdManager";
+import { showInterstitial, recordGameCompleted } from "@/shared/ads/AdManager";
 import GameOverScreen from "@/shared/components/GameOverScreen";
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
@@ -64,6 +64,8 @@ export default function ColorClash() {
   const [streak, setStreak] = useState(0);
   const [round, setRound] = useState<Round>(() => makeRound(null));
   const [flashColor, setFlashColor] = useState<string | null>(null);
+  const [interstitialShown, setInterstitialShown] = useState(false);
+  const hasContinuedRef = useRef(false);
 
   const phaseRef = useRef<GamePhase>('idle');
   const scoreRef = useRef(0);
@@ -111,7 +113,9 @@ export default function ColorClash() {
     setPhase('over');
     cancelAnimation(timerProgress);
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
-    showInterstitial();
+    recordGameCompleted();
+    const adShown = await showInterstitial();
+    setInterstitialShown(adShown);
     const finalScore = scoreRef.current;
     const stored = await AsyncStorage.getItem(STORAGE_KEY);
     const prev = stored ? parseInt(stored, 10) : 0;
@@ -181,7 +185,26 @@ export default function ColorClash() {
     [round, timerProgress, nextRound, triggerGameOver],
   );
 
+  const handleContinue = useCallback(() => {
+    hasContinuedRef.current = true;
+    isAnsweringRef.current = false;
+    const r = makeRound(lastInkRef.current);
+    lastInkRef.current = r.inkIdx;
+    setRound(r);
+    phaseRef.current = 'playing';
+    setPhase('playing');
+    const limit = getTimeLimit(scoreRef.current) + 5000;
+    cancelAnimation(timerProgress);
+    timerProgress.value = 1;
+    timerProgress.value = withTiming(0, {
+      duration: limit,
+      easing: Easing.linear,
+    });
+  }, [timerProgress]);
+
   const launchGame = useCallback(() => {
+    hasContinuedRef.current = false;
+    setInterstitialShown(false);
     scoreRef.current = 0;
     streakRef.current = 0;
     isAnsweringRef.current = false;
@@ -205,7 +228,6 @@ export default function ColorClash() {
 
   const handleScreenTap = useCallback(() => {
     if (phase === 'idle') {
-      showRewarded();
       launchGame();
     }
   }, [phase, launchGame]);
@@ -274,7 +296,15 @@ export default function ColorClash() {
       )}
 
       {phase === 'over' && (
-        <GameOverScreen score={score} highScore={highScore} accentColor="#ff4444" onReplay={launchGame} />
+        <GameOverScreen
+          score={score}
+          highScore={highScore}
+          accentColor="#ff4444"
+          onReplay={launchGame}
+          onContinue={handleContinue}
+          showContinue={!hasContinuedRef.current && !interstitialShown}
+          continueSubtext="Get 5 extra seconds and keep your streak by watching an ad"
+        />
       )}
     </View>
   );

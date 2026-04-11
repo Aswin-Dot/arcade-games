@@ -1,5 +1,5 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { showInterstitial, showRewarded } from "@/shared/ads/AdManager";
+import { showInterstitial, recordGameCompleted } from "@/shared/ads/AdManager";
 import GameOverScreen from "@/shared/components/GameOverScreen";
 import * as Haptics from "expo-haptics";
 import React, {
@@ -56,6 +56,8 @@ export default function PulseLanes() {
   const [phase, setPhase] = useState<GamePhase>("idle");
   const [score, setScore] = useState(0);
   const [highScore, setHighScore] = useState(0);
+  const [interstitialShown, setInterstitialShown] = useState(false);
+  const hasContinuedRef = useRef(false);
 
   const phaseRef = useRef<GamePhase>("idle");
   const scoreRef = useRef(0);
@@ -64,6 +66,7 @@ export default function PulseLanes() {
   const spawnTimerRef = useRef(0);
   const animationFrameRef = useRef<number | null>(null);
   const lastFrameTimeRef = useRef<number | null>(null);
+  const invincibleUntilRef = useRef(0);
   const obstaclesRef = useRef<ObstacleData[]>(
     Array.from({ length: MAX_OBSTACLES }, () => ({
       lane: 0,
@@ -163,7 +166,9 @@ export default function PulseLanes() {
     phaseRef.current = "over";
     setPhase("over");
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
-    showInterstitial();
+    recordGameCompleted();
+    const adShown = await showInterstitial();
+    setInterstitialShown(adShown);
     const finalScore = scoreRef.current;
     const stored = await AsyncStorage.getItem(STORAGE_KEY);
     const prev = stored ? parseInt(stored, 10) : 0;
@@ -294,6 +299,8 @@ export default function PulseLanes() {
   }, [phase, tick]);
 
   const launchGame = useCallback(() => {
+    hasContinuedRef.current = false;
+    setInterstitialShown(false);
     phaseRef.current = "playing";
     setPhase("playing");
     scoreRef.current = 0;
@@ -313,10 +320,38 @@ export default function PulseLanes() {
     });
   }, [obstacleOpacities, obstacleYs, playerX]);
 
+  const handleContinue = useCallback(() => {
+    const obs = obstaclesRef.current;
+    const dangerZoneTop = PLAYER_Y - OBSTACLE_HEIGHT * 3;
+    const dangerZoneBottom = PLAYER_Y + PLAYER_SIZE + OBSTACLE_HEIGHT * 3;
+    const laneDanger = [false, false, false];
+    for (let i = 0; i < MAX_OBSTACLES; i++) {
+      if (!obs[i].active) continue;
+      if (obs[i].y > dangerZoneTop && obs[i].y < dangerZoneBottom) {
+        laneDanger[obs[i].lane] = true;
+      }
+    }
+    let safeLane = playerLaneRef.current;
+    for (let l = 0; l < LANE_COUNT; l++) {
+      if (!laneDanger[l]) {
+        safeLane = l;
+        break;
+      }
+    }
+    playerLaneRef.current = safeLane;
+    playerX.value = withTiming(
+      safeLane * LANE_WIDTH + LANE_WIDTH / 2 - PLAYER_SIZE / 2,
+      { duration: 80 },
+    );
+    invincibleUntilRef.current = Date.now() + 1000;
+    hasContinuedRef.current = true;
+    phaseRef.current = "playing";
+    setPhase("playing");
+  }, [playerX]);
+
   const handleTap = useCallback(
     async (evt: { nativeEvent: { locationX: number } }) => {
       if (phase === "idle") {
-        await showRewarded();
         launchGame();
         return;
       }
@@ -467,6 +502,9 @@ export default function PulseLanes() {
             highScore={highScore}
             accentColor="#00f5ff"
             onReplay={launchGame}
+            onContinue={handleContinue}
+            showContinue={!hasContinuedRef.current && !interstitialShown}
+            continueSubtext="Move to a safe lane and keep your score by watching an ad"
           />
         )}
       </View>

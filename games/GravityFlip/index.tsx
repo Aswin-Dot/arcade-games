@@ -12,7 +12,7 @@ import Animated, {
 } from 'react-native-reanimated';
 import * as Haptics from 'expo-haptics';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { showInterstitial, showRewarded } from '@/shared/ads/AdManager';
+import { showInterstitial, recordGameCompleted } from '@/shared/ads/AdManager';
 import GameOverScreen from '@/shared/components/GameOverScreen';
 import { useGameLoop } from '../../shared/hooks/useGameLoop';
 
@@ -21,16 +21,21 @@ const STORAGE_KEY = '@gravity-flip/highscore';
 
 const PLAYER_SIZE = 28;
 const PLAYER_X = SCREEN_WIDTH * 0.2;
-const GRAVITY = 1400; // px/s²
-const FLIP_IMPULSE = 600; // px/s
+const GRAVITY = 380; // px/s² — gentle pull
+const FLIP_IMPULSE = 280; // px/s — soft push on flip
+const MAX_VELOCITY = 340; // px/s — prevents runaway speed
 const OBSTACLE_WIDTH = 28;
-const GAP_HEIGHT = 180;
+const GAP_HEIGHT = 240;
 const OBS_COUNT = 4;
 const PLAY_TOP = 100;
 const PLAY_BOTTOM = SCREEN_HEIGHT - 60;
 const PLAY_HEIGHT = PLAY_BOTTOM - PLAY_TOP;
-const SPEED_START = 200; // px/s
+const SPEED_START = 120; // px/s — obstacles scroll slowly at first
 const GAP_HALF = GAP_HEIGHT / 2;
+/** Minimum horizontal gap between consecutive obstacles */
+const MIN_OBS_SPACING = SCREEN_WIDTH * 0.55;
+/** Grace period — no obstacles for the first N seconds */
+const GRACE_PERIOD_MS = 1500;
 
 type GamePhase = 'idle' | 'playing' | 'over';
 
@@ -39,12 +44,16 @@ export default function GravityFlip() {
   const [score, setScore] = useState(0);
   const [highScore, setHighScore] = useState(0);
   const [gravityUp, setGravityUp] = useState(false);
+  const [interstitialShown, setInterstitialShown] = useState(false);
+  const hasContinuedRef = useRef(false);
 
   const phaseRef = useRef<GamePhase>('idle');
   const scoreRef = useRef(0);
   const velocityRef = useRef(0);
   const gravityDirRef = useRef(1); // 1 = down, -1 = up
   const speedRef = useRef(SPEED_START);
+  const invincibleRef = useRef(false);
+  const elapsedRef = useRef(0);
 
   // Individual named SharedValues (rules of hooks compliance)
   const playerY = useSharedValue(PLAY_HEIGHT / 2);
@@ -132,7 +141,9 @@ export default function GravityFlip() {
     phaseRef.current = 'over';
     setPhase('over');
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
-    showInterstitial();
+    recordGameCompleted();
+    const adShown = await showInterstitial();
+    setInterstitialShown(adShown);
     const finalScore = Math.floor(scoreRef.current);
     const stored = await AsyncStorage.getItem(STORAGE_KEY);
     const prev = stored ? parseInt(stored, 10) : 0;
@@ -159,24 +170,31 @@ export default function GravityFlip() {
     (dt: number) => {
       if (phaseRef.current !== 'playing') return;
       const dtSec = dt / 1000;
+      elapsedRef.current += dt;
 
       // Physics
       const grav = gravityDirRef.current * GRAVITY;
       velocityRef.current += grav * dtSec;
+      // Clamp velocity so the player can't fly uncontrollably
+      velocityRef.current = Math.max(-MAX_VELOCITY, Math.min(MAX_VELOCITY, velocityRef.current));
       const newY = playerY.value + velocityRef.current * dtSec;
 
-      // Wall collision
-      if (newY <= 0 || newY >= PLAY_HEIGHT) {
-        triggerGameOver();
-        return;
+      // Wall collision — bounce off with dampened velocity instead of instant death
+      if (newY <= 0) {
+        playerY.value = 1;
+        velocityRef.current = Math.abs(velocityRef.current) * 0.3;
+      } else if (newY >= PLAY_HEIGHT) {
+        playerY.value = PLAY_HEIGHT - 1;
+        velocityRef.current = -Math.abs(velocityRef.current) * 0.3;
+      } else {
+        playerY.value = newY;
       }
-      playerY.value = newY;
 
-      // Score + speed
+      // Score + speed (gentler ramp)
       scoreRef.current += dtSec * 10;
       const roundedScore = Math.floor(scoreRef.current);
       setScore(roundedScore);
-      speedRef.current = SPEED_START + roundedScore * 0.5;
+      speedRef.current = SPEED_START + roundedScore * 0.15;
 
       // Move obstacles
       for (let i = 0; i < OBS_COUNT; i++) {
@@ -187,12 +205,15 @@ export default function GravityFlip() {
         }
       }
 
-      // Spawn when screen is sparse
+      // Grace period — no obstacles until player has had time to orient
+      if (elapsedRef.current < GRACE_PERIOD_MS) return;
+
+      // Spawn based on rightmost active obstacle — ensures proper spacing
       const activeXs = Array.from({ length: OBS_COUNT }, (_, i) =>
         obsViss[i].value > 0.5 ? obsXs[i].value : null,
       ).filter((x): x is number => x !== null);
-      const minObsX = activeXs.length > 0 ? Math.min(...activeXs) : Infinity;
-      if (minObsX > SCREEN_WIDTH * 0.8 || activeXs.length === 0) {
+      const maxObsX = activeXs.length > 0 ? Math.max(...activeXs) : -Infinity;
+      if (maxObsX < SCREEN_WIDTH - MIN_OBS_SPACING || activeXs.length === 0) {
         const freeIdx = Array.from({ length: OBS_COUNT }, (_, i) => i).find(
           (i) => obsViss[i].value < 0.5,
         );
@@ -202,6 +223,7 @@ export default function GravityFlip() {
       }
 
       // Collision detection — reads gcs[i].value directly (same source as rendering)
+      if (invincibleRef.current) return;
       const pY = playerY.value;
       for (let i = 0; i < OBS_COUNT; i++) {
         if (obsViss[i].value < 0.5) continue;
@@ -230,11 +252,33 @@ export default function GravityFlip() {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
   }, []);
 
+  const handleContinue = useCallback(() => {
+    playerY.value = PLAY_HEIGHT / 2;
+    velocityRef.current = 0;
+    gravityDirRef.current = 1;
+    setGravityUp(false);
+    for (let i = 0; i < OBS_COUNT; i++) {
+      if (obsViss[i].value > 0.5 && obsXs[i].value < PLAYER_X + PLAYER_SIZE * 3) {
+        obsViss[i].value = 0;
+      }
+    }
+    invincibleRef.current = true;
+    setTimeout(() => {
+      invincibleRef.current = false;
+    }, 1000);
+    hasContinuedRef.current = true;
+    phaseRef.current = 'playing';
+    setPhase('playing');
+  }, [playerY, obsXs, obsViss]);
+
   const launchGame = useCallback(() => {
+    hasContinuedRef.current = false;
+    setInterstitialShown(false);
     scoreRef.current = 0;
     velocityRef.current = 0;
     gravityDirRef.current = 1;
     speedRef.current = SPEED_START;
+    elapsedRef.current = 0;
     setScore(0);
     setGravityUp(false);
     playerY.value = PLAY_HEIGHT / 2;
@@ -251,7 +295,6 @@ export default function GravityFlip() {
 
   const handleScreenTap = useCallback(() => {
     if (phase === 'idle') {
-      showRewarded();
       launchGame();
     } else if (phase === 'playing') {
       handleFlip();
@@ -296,7 +339,15 @@ export default function GravityFlip() {
         )}
 
         {phase === 'over' && (
-          <GameOverScreen score={score} highScore={highScore} accentColor="#39ff14" onReplay={launchGame} />
+          <GameOverScreen
+            score={score}
+            highScore={highScore}
+            accentColor="#39ff14"
+            onReplay={launchGame}
+            onContinue={handleContinue}
+            showContinue={!hasContinuedRef.current && !interstitialShown}
+            continueSubtext="Respawn safely and keep your score by watching an ad"
+          />
         )}
       </View>
     </TouchableWithoutFeedback>

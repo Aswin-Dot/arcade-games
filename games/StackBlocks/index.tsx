@@ -13,7 +13,7 @@ import Animated, {
 import * as Haptics from 'expo-haptics';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useGameLoop } from '../../shared/hooks/useGameLoop';
-import { showInterstitial, showRewarded } from '@/shared/ads/AdManager';
+import { showInterstitial, recordGameCompleted } from '@/shared/ads/AdManager';
 import GameOverScreen from '@/shared/components/GameOverScreen';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
@@ -43,6 +43,8 @@ export default function StackBlocks() {
   const [highScore, setHighScore] = useState(0);
   const [placedBlocks, setPlacedBlocks] = useState<PlacedBlock[]>([]);
   const [currentWidth, setCurrentWidth] = useState(INITIAL_WIDTH);
+  const [interstitialShown, setInterstitialShown] = useState(false);
+  const hasContinuedRef = useRef(false);
 
   const phaseRef = useRef<GamePhase>('idle');
   const scoreRef = useRef(0);
@@ -71,7 +73,9 @@ export default function StackBlocks() {
     phaseRef.current = 'over';
     setPhase('over');
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
-    showInterstitial();
+    recordGameCompleted();
+    const adShown = await showInterstitial();
+    setInterstitialShown(adShown);
     const finalScore = scoreRef.current;
     const stored = await AsyncStorage.getItem(STORAGE_KEY);
     const prev = stored ? parseInt(stored, 10) : 0;
@@ -80,6 +84,30 @@ export default function StackBlocks() {
       setHighScore(finalScore);
     }
   }, []);
+
+  const handleContinue = useCallback(() => {
+    hasContinuedRef.current = true;
+    const blocks = placedBlocksRef.current;
+    if (blocks.length > 1) {
+      const restored = blocks.slice(0, -1);
+      placedBlocksRef.current = restored;
+      setPlacedBlocks(restored);
+      const lastBlock = restored[restored.length - 1];
+      currentWidthRef.current = lastBlock.width;
+      setCurrentWidth(lastBlock.width);
+      blockWidth.value = lastBlock.width;
+      positionRef.current = 0;
+      directionRef.current = 1;
+      blockX.value = 0;
+      if (scoreRef.current > 0) {
+        scoreRef.current -= 1;
+        setScore(scoreRef.current);
+      }
+      colorIdxRef.current = restored.length;
+    }
+    phaseRef.current = 'playing';
+    setPhase('playing');
+  }, [blockX, blockWidth]);
 
   const tick = useCallback(
     (dt: number) => {
@@ -106,6 +134,8 @@ export default function StackBlocks() {
   useGameLoop(tick, phase === 'playing');
 
   const launchGame = useCallback(() => {
+    hasContinuedRef.current = false;
+    setInterstitialShown(false);
     const initialWidth = INITIAL_WIDTH;
     scoreRef.current = 0;
     colorIdxRef.current = 0;
@@ -134,7 +164,6 @@ export default function StackBlocks() {
 
   const handleTap = useCallback(() => {
     if (phaseRef.current === 'idle') {
-      showRewarded();
       launchGame();
       return;
     }
@@ -252,7 +281,7 @@ export default function StackBlocks() {
         )}
 
         {phase === 'over' && (
-          <GameOverScreen score={score} highScore={highScore} accentColor="#00f5ff" onReplay={launchGame} />
+          <GameOverScreen score={score} highScore={highScore} accentColor="#00f5ff" onReplay={launchGame} onContinue={handleContinue} showContinue={!hasContinuedRef.current && !interstitialShown} continueSubtext="Retry this block and keep your stack by watching an ad" />
         )}
       </View>
     </TouchableWithoutFeedback>

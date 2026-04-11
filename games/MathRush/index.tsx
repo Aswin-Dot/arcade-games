@@ -16,7 +16,7 @@ import Animated, {
 } from 'react-native-reanimated';
 import * as Haptics from 'expo-haptics';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { showInterstitial, showRewarded } from '@/shared/ads/AdManager';
+import { showInterstitial, recordGameCompleted } from '@/shared/ads/AdManager';
 import GameOverScreen from '@/shared/components/GameOverScreen';
 import { useGameLoop } from '../../shared/hooks/useGameLoop';
 
@@ -91,6 +91,8 @@ export default function MathRush() {
   const [streak, setStreak] = useState(0);
   const [question, setQuestion] = useState<Question>(() => makeQuestion(0));
   const [flashColor, setFlashColor] = useState<string | null>(null);
+  const [interstitialShown, setInterstitialShown] = useState(false);
+  const hasContinuedRef = useRef(false);
 
   const phaseRef = useRef<GamePhase>('idle');
   const scoreRef = useRef(0);
@@ -133,7 +135,9 @@ export default function MathRush() {
     setPhase('over');
     cancelAnimation(timerProgress);
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
-    showInterstitial();
+    recordGameCompleted();
+    const adShown = await showInterstitial();
+    setInterstitialShown(adShown);
     const finalScore = scoreRef.current;
     const stored = await AsyncStorage.getItem(STORAGE_KEY);
     const prev = stored ? parseInt(stored, 10) : 0;
@@ -205,7 +209,24 @@ export default function MathRush() {
     [question, timerProgress, nextQuestion, triggerGameOver],
   );
 
+  const handleContinue = useCallback(() => {
+    hasContinuedRef.current = true;
+    isAnsweringRef.current = false;
+    const q = makeQuestion(scoreRef.current);
+    setQuestion(q);
+    phaseRef.current = 'playing';
+    setPhase('playing');
+    cancelAnimation(timerProgress);
+    timerProgress.value = 1;
+    timerProgress.value = withTiming(0, {
+      duration: 5000,
+      easing: Easing.linear,
+    });
+  }, [timerProgress]);
+
   const startGame = useCallback(() => {
+    hasContinuedRef.current = false;
+    setInterstitialShown(false);
     scoreRef.current = 0;
     streakRef.current = 0;
     isAnsweringRef.current = false;
@@ -225,9 +246,8 @@ export default function MathRush() {
     });
   }, [timerProgress]);
 
-  const handleScreenTap = useCallback(async () => {
+  const handleScreenTap = useCallback(() => {
     if (phase === 'idle') {
-      await showRewarded();
       startGame();
     }
   }, [phase, startGame]);
@@ -290,6 +310,9 @@ export default function MathRush() {
           highScore={highScore}
           accentColor="#feca57"
           onReplay={startGame}
+          onContinue={handleContinue}
+          showContinue={!hasContinuedRef.current && !interstitialShown}
+          continueSubtext="Get 5 extra seconds and keep your streak by watching an ad"
         />
       )}
     </View>

@@ -16,7 +16,7 @@ import Animated, {
 import * as Haptics from 'expo-haptics';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useGameLoop } from '../../shared/hooks/useGameLoop';
-import { showInterstitial, showRewarded } from '@/shared/ads/AdManager';
+import { showInterstitial, recordGameCompleted } from '@/shared/ads/AdManager';
 import GameOverScreen from '@/shared/components/GameOverScreen';
 
 const STORAGE_KEY = '@tap-rhythm/highscore';
@@ -39,6 +39,8 @@ export default function TapRhythm() {
   const [lives, setLives] = useState(3);
   const [tapResult, setTapResult] = useState<TapResult>(null);
   const [combo, setCombo] = useState(0);
+  const [interstitialShown, setInterstitialShown] = useState(false);
+  const hasContinuedRef = useRef(false);
 
   const phaseRef = useRef<GamePhase>('idle');
   const scoreRef = useRef(0);
@@ -77,7 +79,9 @@ export default function TapRhythm() {
     phaseRef.current = 'over';
     setPhase('over');
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
-    showInterstitial();
+    recordGameCompleted();
+    const adShown = await showInterstitial();
+    setInterstitialShown(adShown);
     const finalScore = scoreRef.current;
     const stored = await AsyncStorage.getItem(STORAGE_KEY);
     const prev = stored ? parseInt(stored, 10) : 0;
@@ -129,6 +133,8 @@ export default function TapRhythm() {
   useGameLoop(tick, phase === 'playing');
 
   const launchGame = useCallback(() => {
+    hasContinuedRef.current = false;
+    setInterstitialShown(false);
     scoreRef.current = 0;
     livesRef.current = 3;
     comboRef.current = 0;
@@ -145,9 +151,16 @@ export default function TapRhythm() {
     setPhase('playing');
   }, [pulseScale, ringOpacity]);
 
+  const handleContinue = useCallback(() => {
+    livesRef.current = 1;
+    setLives(1);
+    hasContinuedRef.current = true;
+    phaseRef.current = 'playing';
+    setPhase('playing');
+  }, []);
+
   const handleTap = useCallback(() => {
     if (phaseRef.current === 'idle') {
-      showRewarded();
       launchGame();
       return;
     }
@@ -259,7 +272,7 @@ export default function TapRhythm() {
         )}
 
         {phase === 'over' && (
-          <GameOverScreen score={score} highScore={highScore} accentColor="#ff00ff" onReplay={launchGame} />
+          <GameOverScreen score={score} highScore={highScore} accentColor="#ff00ff" onReplay={launchGame} onContinue={handleContinue} showContinue={!hasContinuedRef.current && !interstitialShown} continueSubtext="Get an extra life and keep your combo by watching an ad" />
         )}
       </View>
     </TouchableWithoutFeedback>

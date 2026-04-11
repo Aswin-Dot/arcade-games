@@ -1,5 +1,5 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { showInterstitial, showRewarded } from "@/shared/ads/AdManager";
+import { showInterstitial, recordGameCompleted } from "@/shared/ads/AdManager";
 import GameOverScreen from "@/shared/components/GameOverScreen";
 import * as Haptics from "expo-haptics";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -43,6 +43,8 @@ export default function LaserDodge() {
   const [phase, setPhase] = useState<GamePhase>("idle");
   const [survivalTime, setSurvivalTime] = useState(0);
   const [bestTime, setBestTime] = useState(0);
+  const [interstitialShown, setInterstitialShown] = useState(false);
+  const hasContinuedRef = useRef(false);
 
   const phaseRef = useRef<GamePhase>("idle");
   const timeRef = useRef(0);
@@ -67,6 +69,7 @@ export default function LaserDodge() {
   const isPlaying = useSharedValue(false);
   const startX = useSharedValue(ARENA_WIDTH / 2);
   const startY = useSharedValue(ARENA_HEIGHT / 2);
+  const invincibleUntilRef = useRef(0);
   const animationFrameRef = useRef<number | null>(null);
   const lastFrameTimeRef = useRef<number | null>(null);
 
@@ -147,7 +150,9 @@ export default function LaserDodge() {
     isPlaying.value = false;
     setPhase("over");
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
-    showInterstitial();
+    recordGameCompleted();
+    const adShown = await showInterstitial();
+    setInterstitialShown(adShown);
     const finalTime = Math.floor(timeRef.current * 10) / 10;
     setSurvivalTime(finalTime);
     const stored = await AsyncStorage.getItem(STORAGE_KEY);
@@ -308,7 +313,21 @@ export default function LaserDodge() {
       playerY.value = newY;
     });
 
+  const handleContinue = useCallback(() => {
+    playerX.value = ARENA_WIDTH / 2;
+    playerY.value = ARENA_HEIGHT / 2;
+    startX.value = ARENA_WIDTH / 2;
+    startY.value = ARENA_HEIGHT / 2;
+    invincibleUntilRef.current = Date.now() + 1500;
+    hasContinuedRef.current = true;
+    phaseRef.current = "playing";
+    isPlaying.value = true;
+    setPhase("playing");
+  }, [playerX, playerY, startX, startY, isPlaying]);
+
   const launchGame = useCallback(() => {
+    hasContinuedRef.current = false;
+    setInterstitialShown(false);
     phaseRef.current = "playing";
     isPlaying.value = true;
     setPhase("playing");
@@ -336,9 +355,8 @@ export default function LaserDodge() {
     laserThicknesses,
   ]);
 
-  const startGame = useCallback(async () => {
+  const startGame = useCallback(() => {
     if (phase === "idle") {
-      await showRewarded();
       launchGame();
     }
   }, [phase, launchGame]);
@@ -493,6 +511,9 @@ export default function LaserDodge() {
           formatScore={(t) => `${t.toFixed(1)}s`}
           accentColor="#00f5ff"
           onReplay={launchGame}
+          onContinue={handleContinue}
+          showContinue={!hasContinuedRef.current && !interstitialShown}
+          continueSubtext="Respawn safely and keep your time by watching an ad"
         />
       )}
     </View>

@@ -15,7 +15,7 @@ import Animated, {
 } from "react-native-reanimated";
 import * as Haptics from "expo-haptics";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { showInterstitial, showRewarded } from "@/shared/ads/AdManager";
+import { showInterstitial, recordGameCompleted } from "@/shared/ads/AdManager";
 import GameOverScreen from "@/shared/components/GameOverScreen";
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get("window");
@@ -51,6 +51,8 @@ export default function CircleShrink() {
   const [score, setScore] = useState(0);
   const [highScore, setHighScore] = useState(0);
   const [lives, setLives] = useState(3);
+  const [interstitialShown, setInterstitialShown] = useState(false);
+  const hasContinuedRef = useRef(false);
 
   const phaseRef = useRef<GamePhase>("idle");
   const scoreRef = useRef(0);
@@ -286,7 +288,9 @@ export default function CircleShrink() {
     phaseRef.current = "over";
     setPhase("over");
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
-    showInterstitial();
+    recordGameCompleted();
+    const adShown = await showInterstitial();
+    setInterstitialShown(adShown);
     const finalScore = scoreRef.current;
     const stored = await AsyncStorage.getItem(STORAGE_KEY);
     const prev = stored ? parseInt(stored, 10) : 0;
@@ -386,7 +390,22 @@ export default function CircleShrink() {
     [circleOpacities, updateScore],
   );
 
+  const handleContinue = useCallback(() => {
+    hasContinuedRef.current = true;
+    livesRef.current = 1;
+    setLives(1);
+    spawnTimerRef.current = 0;
+    circlesRef.current.forEach((c, i) => {
+      c.active = false;
+      circleOpacities[i].value = 0;
+    });
+    phaseRef.current = "playing";
+    setPhase("playing");
+  }, [circleOpacities]);
+
   const startGame = useCallback(() => {
+    hasContinuedRef.current = false;
+    setInterstitialShown(false);
     phaseRef.current = "playing";
     setPhase("playing");
     scoreRef.current = 0;
@@ -400,9 +419,8 @@ export default function CircleShrink() {
     });
   }, [circleOpacities]);
 
-  const handleScreenTap = useCallback(async () => {
+  const handleScreenTap = useCallback(() => {
     if (phase === "idle") {
-      await showRewarded();
       startGame();
     }
   }, [phase, startGame]);
@@ -474,6 +492,9 @@ export default function CircleShrink() {
           highScore={highScore}
           accentColor="#4ecdc4"
           onReplay={startGame}
+          onContinue={handleContinue}
+          showContinue={!hasContinuedRef.current && !interstitialShown}
+          continueSubtext="Get an extra life and keep your score by watching an ad"
         />
       )}
     </View>

@@ -5,7 +5,7 @@ import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import * as Haptics from 'expo-haptics';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useGameLoop } from '../../shared/hooks/useGameLoop';
-import { showInterstitial, showRewarded } from '@/shared/ads/AdManager';
+import { showInterstitial, recordGameCompleted } from '@/shared/ads/AdManager';
 import GameOverScreen from '@/shared/components/GameOverScreen';
 
 const STORAGE_KEY = '@brick-breaker/highscore';
@@ -59,6 +59,8 @@ export default function BrickBreaker() {
   const [highScore, setHighScore] = useState(0);
   const [lives, setLives] = useState(3);
   const [bricks, setBricks] = useState<Brick[]>(makeBricks());
+  const [interstitialShown, setInterstitialShown] = useState(false);
+  const hasContinuedRef = useRef(false);
 
   const phaseRef = useRef<Phase>('idle');
   const scoreRef = useRef(0);
@@ -90,7 +92,9 @@ export default function BrickBreaker() {
     phaseRef.current = 'over';
     setPhase('over');
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
-    showInterstitial();
+    recordGameCompleted();
+    const adShown = await showInterstitial();
+    setInterstitialShown(adShown);
     const s = scoreRef.current;
     const stored = await AsyncStorage.getItem(STORAGE_KEY);
     const prev = stored ? parseInt(stored, 10) : 0;
@@ -108,6 +112,15 @@ export default function BrickBreaker() {
     velYRef.current = 0;
     launched.current = false;
   }, [ballX, ballY]);
+
+  const handleContinue = useCallback(() => {
+    livesRef.current += 1;
+    setLives(livesRef.current);
+    resetBall();
+    hasContinuedRef.current = true;
+    phaseRef.current = 'playing';
+    setPhase('playing');
+  }, [resetBall]);
 
   const tick = useCallback(
     (dt: number) => {
@@ -236,6 +249,8 @@ export default function BrickBreaker() {
   );
 
   const launchGame = useCallback(() => {
+    hasContinuedRef.current = false;
+    setInterstitialShown(false);
     scoreRef.current = 0;
     livesRef.current = 3;
     ballSpeedRef.current = BALL_SPEED_START;
@@ -257,7 +272,7 @@ export default function BrickBreaker() {
   }, [ballX, ballY, paddleX]);
 
   const handleTap = useCallback(() => {
-    if (phase === 'idle') { showRewarded(); launchGame(); return; }
+    if (phase === 'idle') { launchGame(); return; }
     // Tap to launch if not yet launched
     if (phase === 'playing' && !launched.current) {
       launched.current = true;
@@ -318,7 +333,15 @@ export default function BrickBreaker() {
         )}
 
         {phase === 'over' && (
-          <GameOverScreen score={score} highScore={highScore} accentColor="#ff6b35" onReplay={launchGame} />
+          <GameOverScreen
+            score={score}
+            highScore={highScore}
+            accentColor="#ff6b35"
+            onReplay={launchGame}
+            onContinue={handleContinue}
+            showContinue={!hasContinuedRef.current && !interstitialShown}
+            continueSubtext="Get an extra life and keep your score by watching an ad"
+          />
         )}
 
         {phase === 'playing' && !launched.current && (

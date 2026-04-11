@@ -35,9 +35,12 @@ let rewardedReady     = false;
 let _emitter: NativeEventEmitter | null = null;
 
 // ─── Frequency cap ───────────────────────────────────────────────────────────
-/** Minimum milliseconds between interstitial ads (avoids back-to-back ads). */
+/** Minimum milliseconds between interstitial ads. */
 const INTERSTITIAL_COOLDOWN_MS = 60_000;
-let lastInterstitialShownAt = 0;
+/** Minimum number of completed games before showing the first interstitial. */
+const MIN_GAMES_BEFORE_AD = 3;
+let lastInterstitialShownAt = Date.now();
+let gamesCompletedSinceLastAd = 0;
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -126,10 +129,13 @@ function setupEventListeners(): void {
 async function requestATTPermission(): Promise<void> {
   if (Platform.OS !== 'ios') return;
   try {
+    // Delay so the app window is fully visible — iPadOS 26.4 silently
+    // drops the ATT prompt if the app isn't in the foreground yet.
+    await new Promise<void>((resolve) => setTimeout(resolve, 1_500));
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const { requestTrackingPermissionsAsync } = require('expo-tracking-transparency');
     const { status } = await requestTrackingPermissionsAsync();
-    console.log('[AdManager] ATT status:', status);
+    console.warn('[AdManager] ATT status:', status);
   } catch (e) {
     console.warn('[AdManager] ATT request failed:', e);
   }
@@ -179,23 +185,27 @@ export async function initializeAds(): Promise<void> {
  * Show an interstitial ad if one is ready.
  * Resolves when the user closes the ad (or immediately if no ad is ready).
  */
-export async function showInterstitial(): Promise<void> {
+export async function showInterstitial(): Promise<boolean> {
   const mod = getTopOn();
-  if (!mod || !interstitialReady) return;
+  if (!mod || !interstitialReady) return false;
+
+  // Gate: require at least MIN_GAMES_BEFORE_AD completed games
+  if (gamesCompletedSinceLastAd < MIN_GAMES_BEFORE_AD) return false;
 
   // Enforce frequency cap — skip if shown too recently
   const now = Date.now();
-  if (now - lastInterstitialShownAt < INTERSTITIAL_COOLDOWN_MS) return;
+  if (now - lastInterstitialShownAt < INTERSTITIAL_COOLDOWN_MS) return false;
 
   return new Promise((resolve) => {
     const em = getEmitter();
-    if (!em) { resolve(); return; }
+    if (!em) { resolve(false); return; }
 
     const { ToponEvents } = mod;
     lastInterstitialShownAt = Date.now();
+    gamesCompletedSinceLastAd = 0;
     const sub = em.addListener(ToponEvents.Interstitial.Close, () => {
       sub.remove();
-      resolve();
+      resolve(true);
     });
 
     try {
@@ -203,7 +213,7 @@ export async function showInterstitial(): Promise<void> {
     } catch (e) {
       sub.remove();
       console.warn('[AdManager] Interstitial show error:', e);
-      resolve();
+      resolve(false);
     }
   });
 }
@@ -241,6 +251,14 @@ export async function showRewarded(): Promise<boolean> {
       resolve(false);
     }
   });
+}
+
+/**
+ * Record that a game was completed (death / game over).
+ * Call this on every game over so the interstitial gate counter advances.
+ */
+export function recordGameCompleted(): void {
+  gamesCompletedSinceLastAd += 1;
 }
 
 /** Returns true if an interstitial is loaded and ready. */

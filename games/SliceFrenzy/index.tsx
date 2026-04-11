@@ -4,7 +4,7 @@ import Animated, { useSharedValue, useAnimatedStyle } from 'react-native-reanima
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import * as Haptics from 'expo-haptics';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { showInterstitial, showRewarded } from "@/shared/ads/AdManager";
+import { showInterstitial, recordGameCompleted } from "@/shared/ads/AdManager";
 import GameOverScreen from "@/shared/components/GameOverScreen";
 import { useGameLoop } from '../../shared/hooks/useGameLoop';
 
@@ -35,6 +35,8 @@ export default function SliceFrenzy() {
   const [phase, setPhase] = useState<Phase>('idle');
   const [score, setScore] = useState(0);
   const [highScore, setHighScore] = useState(0);
+  const [interstitialShown, setInterstitialShown] = useState(false);
+  const hasContinuedRef = useRef(false);
   const [lives, setLives] = useState(3);
   const [shapes, setShapes] = useState<ShapeData[]>(
     Array.from({ length: NUM_SHAPES }, () => ({
@@ -87,7 +89,9 @@ export default function SliceFrenzy() {
     phaseRef.current = 'over';
     setPhase('over');
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
-    showInterstitial();
+    recordGameCompleted();
+    const adShown = await showInterstitial();
+    setInterstitialShown(adShown);
     const s = scoreRef.current;
     const stored = await AsyncStorage.getItem(STORAGE_KEY);
     const prev = stored ? parseInt(stored, 10) : 0;
@@ -199,6 +203,8 @@ export default function SliceFrenzy() {
   useGameLoop(tick, phase === 'playing');
 
   const launchGame = useCallback(() => {
+    hasContinuedRef.current = false;
+    setInterstitialShown(false);
     scoreRef.current = 0;
     livesRef.current = 3;
     spawnTimerRef.current = 0;
@@ -219,11 +225,16 @@ export default function SliceFrenzy() {
   }, [pxs, pys, viss]);
 
   const startGame = useCallback(() => {
-    if (phaseRef.current === 'idle') {
-      showRewarded();
-    }
     launchGame();
   }, [launchGame]);
+
+  const handleContinue = useCallback(() => {
+    livesRef.current = 1;
+    setLives(1);
+    hasContinuedRef.current = true;
+    phaseRef.current = 'playing';
+    setPhase('playing');
+  }, []);
 
   const panGesture = useMemo(
     () =>
@@ -282,7 +293,15 @@ export default function SliceFrenzy() {
         )}
 
         {phase === 'over' && (
-          <GameOverScreen score={score} highScore={highScore} accentColor="#ff4757" onReplay={launchGame} />
+          <GameOverScreen
+            score={score}
+            highScore={highScore}
+            accentColor="#ff4757"
+            onReplay={launchGame}
+            onContinue={handleContinue}
+            showContinue={!hasContinuedRef.current && !interstitialShown}
+            continueSubtext="Get an extra life and keep your score by watching an ad"
+          />
         )}
       </View>
     </GestureDetector>
