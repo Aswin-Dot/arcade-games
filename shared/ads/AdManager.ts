@@ -22,7 +22,11 @@
  * In __DEV__ builds, TopOn's official test placement IDs are used automatically.
  */
 
-import { NativeEventEmitter, Platform } from 'react-native';
+import { Alert, AppState, NativeEventEmitter, Platform } from 'react-native';
+import {
+  getTrackingPermissionsAsync,
+  requestTrackingPermissionsAsync,
+} from 'expo-tracking-transparency';
 
 // ─── TopOn test placement IDs (from TopOn SDK documentation) ─────────────────
 const TEST_INTERSTITIAL_ID = 'b5bacbc59b0253';
@@ -126,18 +130,60 @@ function setupEventListeners(): void {
 
 // ─── ATT (iOS 14+) ────────────────────────────────────────────────────────────
 
-async function requestATTPermission(): Promise<void> {
-  if (Platform.OS !== 'ios') return;
+/** Set EXPO_PUBLIC_DEBUG_ATT=true in eas.json to see an on-device Alert with ATT status. */
+const ATT_DEBUG = process.env.EXPO_PUBLIC_DEBUG_ATT === 'true';
+
+function debugAlert(title: string, message: string) {
+  if (ATT_DEBUG) Alert.alert(title, message);
+  console.warn(`[ATT] ${title}: ${message}`);
+}
+
+/**
+ * Wait until the app is UIApplicationState.active. iPadOS 26.4+ silently
+ * drops ATTrackingManager.requestTrackingAuthorization calls made during
+ * launch transitions. Falls back after a timeout so we never hang forever.
+ */
+async function waitForAppActive(timeoutMs = 5000): Promise<void> {
+  if (AppState.currentState === 'active') return;
+  return new Promise((resolve) => {
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const sub = AppState.addEventListener('change', (state) => {
+      if (state === 'active') {
+        if (timer) clearTimeout(timer);
+        sub.remove();
+        resolve();
+      }
+    });
+    timer = setTimeout(() => {
+      sub.remove();
+      resolve();
+    }, timeoutMs);
+  });
+}
+
+/** Returns true if the user granted tracking permission. */
+async function requestATTPermission(): Promise<boolean> {
+  if (Platform.OS !== 'ios') return false;
   try {
-    // Delay so the app window is fully visible — iPadOS 26.4 silently
-    // drops the ATT prompt if the app isn't in the foreground yet.
+    await waitForAppActive();
+    // Buffer for window/splash to fully render — the ATT prompt presents
+    // on the key window and can no-op if attached during a transition.
     await new Promise<void>((resolve) => setTimeout(resolve, 1_500));
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const { requestTrackingPermissionsAsync } = require('expo-tracking-transparency');
-    const { status } = await requestTrackingPermissionsAsync();
-    console.warn('[AdManager] ATT status:', status);
-  } catch (e) {
-    console.warn('[AdManager] ATT request failed:', e);
+
+    const existing = await getTrackingPermissionsAsync();
+    debugAlert('ATT current status', existing.status);
+
+    // iOS never re-prompts once status is granted/denied/restricted — only
+    // 'undetermined' will actually present the system dialog. We still call
+    // requestTrackingPermissionsAsync unconditionally because on iOS it's
+    // a safe no-op when determined, and it returns the final status.
+    const result = await requestTrackingPermissionsAsync();
+    debugAlert('ATT after request', result.status);
+    return result.status === 'granted';
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : String(e);
+    debugAlert('ATT error', msg);
+    return false;
   }
 }
 
@@ -154,7 +200,7 @@ export async function initializeAds(): Promise<void> {
   }
 
   // Step 1: ATT permission (must come before any ad SDK init on iOS 14+)
-  await requestATTPermission();
+  const trackingGranted = await requestATTPermission();
 
   // Step 2: Init TopOn SDK
   const appId  = process.env.EXPO_PUBLIC_TOPON_APP_ID  || '';
@@ -171,6 +217,13 @@ export async function initializeAds(): Promise<void> {
     if (__DEV__ || process.env.EXPO_PUBLIC_BUILD_ENV !== 'production') {
       mod.SDK.setLogDebug(true);
     }
+
+    // Set GDPR consent level based on ATT response BEFORE SDK.init() to
+    // prevent TopOn from auto-showing its own GDPR consent dialog — Apple
+    // rejects apps that show custom tracking prompts (Guideline 5.1.2(i)).
+    // Level 1 = personalized (user granted ATT), 0 = non-personalized.
+    mod.SDK.setGDPRLevel(trackingGranted ? 1 : 0);
+
     mod.SDK.init(appId, appKey);
     setupEventListeners();
     loadInterstitial();
@@ -195,6 +248,21 @@ export async function showInterstitial(): Promise<boolean> {
   // Enforce frequency cap — skip if shown too recently
   const now = Date.now();
   if (now - lastInterstitialShownAt < INTERSTITIAL_COOLDOWN_MS) return false;
+
+  // Re-verify with native that the ad is actually still loaded — the
+  // cached `interstitialReady` flag can go stale if the ad expired or the
+  // mediated adapter (e.g. FAN) silently invalidated its cache.
+  try {
+    const ready = await mod.Interstitial.hasAdReady?.(interstitialPlacementId());
+    if (ready === false) {
+      interstitialReady = false;
+      loadInterstitial();
+      return false;
+    }
+  } catch (e) {
+    console.warn('[AdManager] hasAdReady check failed:', e);
+    return false;
+  }
 
   return new Promise((resolve) => {
     const em = getEmitter();
@@ -225,6 +293,18 @@ export async function showInterstitial(): Promise<boolean> {
 export async function showRewarded(): Promise<boolean> {
   const mod = getTopOn();
   if (!mod || !rewardedReady) return false;
+
+  try {
+    const ready = await mod.RewardedVideo.hasAdReady?.(rewardedPlacementId());
+    if (ready === false) {
+      rewardedReady = false;
+      loadRewarded();
+      return false;
+    }
+  } catch (e) {
+    console.warn('[AdManager] Rewarded hasAdReady check failed:', e);
+    return false;
+  }
 
   return new Promise((resolve) => {
     const em = getEmitter();

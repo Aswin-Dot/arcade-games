@@ -2,7 +2,7 @@
   "expo": {
     "name": "RNGames",
     "slug": "RNGames",
-    "version": "1.0.0",
+    "version": "1.0.1",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "rngames",
@@ -10,7 +10,7 @@
     "newArchEnabled": true,
     "ios": {
       "supportsTablet": true,
-      "buildNumber": "18"
+      "buildNumber": "35"
     },
     "android": {
       "adaptiveIcon": {

@@ -6,7 +6,9 @@ import { initializeAds } from '@/shared/ads/AdManager';
 
 export default function RootLayout() {
   useEffect(() => {
-    initializeAds();
+    initializeAds().catch((err: unknown) => {
+      console.warn('[App] Ad initialization failed:', err);
+    });
   }, []);
 
   return (

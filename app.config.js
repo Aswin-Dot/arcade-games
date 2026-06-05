@@ -172,16 +172,15 @@ const plugins = [
     }
     return p;
   }),
-  // Raise iOS minimum deployment target to 17.0:
-  // - Expo SDK 54 requires ≥ 15.1
-  // - react-native-topon@0.1.7 pulls TPNYandexSDKAdapter 6.4.93 which requires ≥ 17.0
+  // iOS minimum deployment target — 15.1 is the floor set by React Native 0.81.
+  // All TopOn pods (TPNiOS 6.4.93, TPNFacebookSDKAdapter 6.4.93) require ≤ 12.0.
   // Note: react-native-topon's own Podspec manages all TopOn pod versions (6.4.93);
   // do NOT add a separate withTopOn plugin as it causes version conflicts.
   [
     "expo-build-properties",
     {
       ios: {
-        deploymentTarget: "17.0",
+        deploymentTarget: "15.1",
       },
     },
   ],
@@ -191,9 +190,12 @@ const plugins = [
     "expo-tracking-transparency",
     {
       userTrackingPermission:
-        "We use this to show you relevant ads and keep the game free to play.",
+        "This identifier will be used to deliver personalized ads to you.",
     },
   ],
+  // Adds TPNFacebookSDKAdapter (+ transitive FBAudienceNetwork) to the iOS Podfile
+  // so TopOn can mediate Meta Audience Network demand alongside its ADX inventory.
+  "./plugins/withTopOnFacebook",
 ];
 
 module.exports = {
@@ -224,7 +226,7 @@ module.exports = {
         ITSAppUsesNonExemptEncryption: false,
         // Required for iOS 14+ — shown to user before any ad tracking begins
         NSUserTrackingUsageDescription:
-          "We use this to show you relevant ads and keep the game free to play.",
+          "This identifier will be used to deliver personalized ads to you.",
         // SKAdNetwork IDs for iOS 14+ attribution (TopOn ADX v6.4.87 + all mediation partners)
         // Required for all ad networks to report installs/conversions on iOS 14+
         SKAdNetworkItems: [

@@ -71,9 +71,11 @@
             }
         },
         "circle-shrink-production": {
+            "autoIncrement": true,
             "env": {
                 "APP_VARIANT": "circle-shrink",
                 "EXPO_PUBLIC_APP_VARIANT": "circle-shrink",
+                "EAS_PROJECT_ID": "f454d74b-5475-486a-9e9b-6a556836157f",
                 "EXPO_PUBLIC_TOPON_APP_ID": "h69b957cba9e10",
                 "EXPO_PUBLIC_TOPON_APP_KEY": "ad2b1ca667aa3511455590ce88ed0bec1",
                 "EXPO_PUBLIC_TOPON_INTERSTITIAL_ID": "n1h7d452ukccra",
@@ -106,9 +108,11 @@
             }
         },
         "laser-dodge-production": {
+            "autoIncrement": true,
             "env": {
                 "APP_VARIANT": "laser-dodge",
                 "EXPO_PUBLIC_APP_VARIANT": "laser-dodge",
+                "EAS_PROJECT_ID": "64b80ce3-9d0b-4ed6-b5b4-96510b86aee1",
                 "EXPO_PUBLIC_TOPON_APP_ID": "h69b957e02e3e0",
                 "EXPO_PUBLIC_TOPON_APP_KEY": "a15f4d0f025d63b4001ae10d6749a9910",
                 "EXPO_PUBLIC_TOPON_INTERSTITIAL_ID": "n1h7d45lcbl147",
@@ -141,9 +145,11 @@
             }
         },
         "pulse-lanes-production": {
+            "autoIncrement": true,
             "env": {
                 "APP_VARIANT": "pulse-lanes",
                 "EXPO_PUBLIC_APP_VARIANT": "pulse-lanes",
+                "EAS_PROJECT_ID": "723112be-9ea5-457d-97ac-68677b796b73",
                 "EXPO_PUBLIC_TOPON_APP_ID": "h69b957919c6b7",
                 "EXPO_PUBLIC_TOPON_APP_KEY": "abcfe8d27c31319ce16adf5c0669c66bb",
                 "EXPO_PUBLIC_TOPON_INTERSTITIAL_ID": "n69b957a50f4bc",
@@ -176,9 +182,11 @@
             }
         },
         "math-rush-production": {
+            "autoIncrement": true,
             "env": {
                 "APP_VARIANT": "math-rush",
                 "EXPO_PUBLIC_APP_VARIANT": "math-rush",
+                "EAS_PROJECT_ID": "56ccd40d-7650-4928-a49a-55e3498881d6",
                 "EXPO_PUBLIC_TOPON_APP_ID": "h69b957b711216",
                 "EXPO_PUBLIC_TOPON_APP_KEY": "a154269700edcd90cad13bba52708af31",
                 "EXPO_PUBLIC_TOPON_INTERSTITIAL_ID": "n1h7d44fsjkhv1",
@@ -499,6 +507,38 @@
         "production": {
             "ios": {
                 "ascAppId": "6760814736",
+                "ascApiKeyPath": "/Users/aswinraj/Downloads/AuthKey_99U622M7G6.p8",
+                "ascApiKeyId": "99U622M7G6",
+                "ascApiKeyIssuerId": "5eed739e-f1c7-4628-8ef7-d087d126b7be"
+            }
+        },
+        "math-rush-production": {
+            "ios": {
+                "ascAppId": "6760820012",
+                "ascApiKeyPath": "/Users/aswinraj/Downloads/AuthKey_99U622M7G6.p8",
+                "ascApiKeyId": "99U622M7G6",
+                "ascApiKeyIssuerId": "5eed739e-f1c7-4628-8ef7-d087d126b7be"
+            }
+        },
+        "circle-shrink-production": {
+            "ios": {
+                "ascAppId": "6760819652",
+                "ascApiKeyPath": "/Users/aswinraj/Downloads/AuthKey_99U622M7G6.p8",
+                "ascApiKeyId": "99U622M7G6",
+                "ascApiKeyIssuerId": "5eed739e-f1c7-4628-8ef7-d087d126b7be"
+            }
+        },
+        "pulse-lanes-production": {
+            "ios": {
+                "ascAppId": "6760820084",
+                "ascApiKeyPath": "/Users/aswinraj/Downloads/AuthKey_99U622M7G6.p8",
+                "ascApiKeyId": "99U622M7G6",
+                "ascApiKeyIssuerId": "5eed739e-f1c7-4628-8ef7-d087d126b7be"
+            }
+        },
+        "laser-dodge-production": {
+            "ios": {
+                "ascAppId": "6760819763",
                 "ascApiKeyPath": "/Users/aswinraj/Downloads/AuthKey_99U622M7G6.p8",
                 "ascApiKeyId": "99U622M7G6",
                 "ascApiKeyIssuerId": "5eed739e-f1c7-4628-8ef7-d087d126b7be"
