@@ -1,22 +1,22 @@
 {
   "snake": {
-    "version": "1.0.1",
+    "version": "1.0.2",
     "buildNumber": 18
   },
   "circle-shrink": {
-    "version": "1.0.1",
+    "version": "1.0.2",
     "buildNumber": 2
   },
   "laser-dodge": {
-    "version": "1.0.1",
+    "version": "1.0.2",
     "buildNumber": 2
   },
   "pulse-lanes": {
-    "version": "1.0.1",
+    "version": "1.0.2",
     "buildNumber": 2
   },
   "math-rush": {
-    "version": "1.0.1",
+    "version": "1.0.2",
     "buildNumber": 7
   },
   "gravity-flip": {
